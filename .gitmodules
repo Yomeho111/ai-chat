@@ -1,0 +1,3 @@
+[submodule "third_party/kvstore"]
+	path = third_party/kvstore
+	url = https://github.com/Yomeho111/kvstore
