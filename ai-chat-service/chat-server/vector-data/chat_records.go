@@ -1,69 +1,75 @@
 package vector_data
 
 import (
-	"ai-chat-service/pkg/config"
+	"ai-chat-service/proto"
 	"context"
-	"github.com/tencent/vectordatabase-sdk-go/tcvectordb"
+	"errors"
+	"time"
 )
 
-const CHAT_RECORDS = "chat_records"
-
-type ChatRecord struct {
-	ID  string
-	KVs map[string]string
-}
 type IChatRecordsData interface {
-	UpsertData(ctx context.Context, list []*ChatRecord) error
-	QueryData(ctx context.Context, text map[string][]string) (id string, score float32, err error)
+	Save(ctx context.Context, keywords string, answer string) error
+	Find(ctx context.Context, keywords string) (answer string, found bool, err error)
 }
 
 type chatRecordsData struct {
-	config   *config.Config
-	vectorDB *tcvectordb.Client
+	client    proto.RagClient
+	timeout   time.Duration
+	threshold float32
 }
 
-func NewChatRecordsData(config *config.Config, vectorDB *tcvectordb.Client) IChatRecordsData {
+func NewChatRecordsData(client proto.RagClient, timeout time.Duration, threshold float32) IChatRecordsData {
 	return &chatRecordsData{
-		config:   config,
-		vectorDB: vectorDB,
+		client:    client,
+		timeout:   timeout,
+		threshold: threshold,
 	}
 }
-func (data *chatRecordsData) UpsertData(ctx context.Context, list []*ChatRecord) error {
-	database := data.config.VectorDB.Database
-	collection := CHAT_RECORDS
-	coll := data.vectorDB.Database(database).Collection(collection)
-	documentList := make([]tcvectordb.Document, 0, len(list))
-	for _, l := range list {
-		doc := tcvectordb.Document{
-			Id: l.ID,
-		}
-		doc.Fields = make(map[string]tcvectordb.Field, len(l.KVs))
-		for k, v := range l.KVs {
-			doc.Fields[k] = tcvectordb.Field{Val: v}
-		}
-		documentList = append(documentList, doc)
-	}
-	_, err := coll.Upsert(ctx, documentList)
+
+func (data *chatRecordsData) Save(ctx context.Context, keywords string, answer string) error {
+	ctx, cancel := context.WithTimeout(ctx, data.timeout)
+	defer cancel()
+
+	vectorResponse, err := data.client.Vset(ctx, &proto.VsetRequest{Text: keywords})
 	if err != nil {
 		return err
 	}
-	return nil
-}
-func (data *chatRecordsData) QueryData(ctx context.Context, text map[string][]string) (id string, score float32, err error) {
-	database := data.config.VectorDB.Database
-	collection := CHAT_RECORDS
-	coll := data.vectorDB.Database(database).Collection(collection)
-	result, err := coll.SearchByText(ctx, text, &tcvectordb.SearchDocumentParams{
-		Params: &tcvectordb.SearchDocParams{Ef: 100},
-		Limit:  1,
+	if vectorResponse.Uuid == "" {
+		return errors.New("vector database returned an empty UUID")
+	}
+
+	response, err := data.client.Set(ctx, &proto.SetRequest{
+		Uuid: vectorResponse.Uuid,
+		Text: answer,
 	})
 	if err != nil {
-		return "", 0, err
+		return err
 	}
-	if len(result.Documents) > 0 && len(result.Documents[0]) > 0 {
-		doc := result.Documents[0][0]
-		return doc.Id, doc.Score, nil
+	if !response.Ok {
+		return errors.New("kvstore rejected the answer")
+	}
+	return nil
+}
 
+func (data *chatRecordsData) Find(ctx context.Context, keywords string) (string, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, data.timeout)
+	defer cancel()
+
+	searchResponse, err := data.client.Vsearch(ctx, &proto.VsearchRequest{
+		Topk:      1,
+		Threshold: data.threshold,
+		Text:      keywords,
+	})
+	if err != nil {
+		return "", false, err
 	}
-	return "", 0, nil
+	if len(searchResponse.Uuids) == 0 {
+		return "", false, nil
+	}
+
+	response, err := data.client.Get(ctx, &proto.GetRequest{Uuid: searchResponse.Uuids[0]})
+	if err != nil {
+		return "", false, err
+	}
+	return response.Text, true, nil
 }

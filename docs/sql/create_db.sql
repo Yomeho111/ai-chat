@@ -13,4 +13,4 @@ CREATE TABLE `chat_records` (
  `create_at` bigint NOT NULL DEFAULT '0',
  PRIMARY KEY (`id`),
  KEY `index_create_at` (`create_at` DESC)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
