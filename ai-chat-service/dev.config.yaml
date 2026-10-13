@@ -37,14 +37,9 @@ chat:
   # 上下文消息条数
   context_len: 4
 redis:
-  host: "192.168.239.161"
+  host: "127.0.0.1"
   port: 6379
   pwd: "123456"
-mysql:
-  dsn: "root:123456@tcp(192.168.239.161:3306)/ai_chat?collation=utf8mb4_unicode_ci&charset=utf8mb4"
-  maxLifeTime: 3600
-  maxOpenConn: 10
-  maxIdleConn: 10
 dependOn:
   sensitive:
     address: "localhost:50053"
@@ -53,20 +48,12 @@ dependOn:
     address: "localhost:50054"
     accessToken: "ang1chubdev1ozhome256487d22sapguuv1ozhom"
   tokenizer:
-    address: "http://192.168.239.161:3002"
+    address: "http://127.0.0.1:3002"
 vectorDB:
-  # 访问地址
-  url: "http://lb-4u4r1fk4-1ys6gv3rpmdan420.clb.ap-guangzhou.tencentclb.com:60000"
-  # 用户名
-  username: "root"
-  # 密码
-  pwd: "YaUfVueWZJ20e4ghyLlBT8Dou5OapwpFTUq50oft"
-  database: "ai-chat"
-  # 请求超时时长s
+  enabled: true
+  # kvstore Rag gRPC 服务地址
+  address: "127.0.0.1:50051"
+  # 单次调用超时时长，单位 s
   timeout: 5
-  # 最大空闲连接数
-  maxIdleConnPerHost: 2
-  # 读一致性： strongConsistency(强一致性)，eventualConsistency(最终一致性)
-  readConsistency: "eventualConsistency"
-  # 空闲连接超时时长s
-  idleConnTimeout: 60
+  # 余弦距离阈值，0.01 等价于相似度大于 0.99
+  threshold: 0.01

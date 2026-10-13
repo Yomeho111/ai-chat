@@ -29,12 +29,6 @@ type Config struct {
 		ContextTTL        int     `mapstructure:"context_ttl"`
 		ContextLen        int     `mapstructure:"context_len"`
 	}
-	Mysql struct {
-		DSN         string
-		MaxLifeTime int
-		MaxOpenConn int
-		MaxIdleConn int
-	}
 	Redis struct {
 		Host string
 		Port int
@@ -54,14 +48,10 @@ type Config struct {
 		}
 	}
 	VectorDB struct {
-		Url                string
-		Username           string
-		Pwd                string
-		Database           string
-		Timeout            int
-		MaxIdleConnPerHost int
-		ReadConsistency    string
-		IdleConnTimeout    int
+		Enabled   bool
+		Address   string
+		Timeout   int
+		Threshold float32
 	}
 }
 
@@ -69,6 +59,10 @@ var conf *Config
 
 func InitConfig(filePath string, typ ...string) {
 	v := viper.New()
+	v.SetDefault("vectorDB.enabled", true)
+	v.SetDefault("vectorDB.address", "127.0.0.1:50051")
+	v.SetDefault("vectorDB.timeout", 5)
+	v.SetDefault("vectorDB.threshold", 0.01)
 	v.SetConfigFile(filePath)
 	if len(typ) > 0 {
 		v.SetConfigType(typ[0])

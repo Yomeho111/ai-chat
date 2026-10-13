@@ -1,11 +1,13 @@
-FROM quay.io/0voice/python:3.10-alpine
+FROM python:3.10-slim
 WORKDIR /app
-ENV PORT 3002
+ENV PORT=3002 \
+    TIKTOKEN_CACHE_DIR=/app/tiktoken-cache \
+    PYTHONUNBUFFERED=1
 
-ADD ./tokenizer.py /app
-ADD ./requirements.txt /app
+COPY ./requirements.txt /app/
+RUN pip install --no-cache-dir -r requirements.txt \
+    && python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')"
 
-RUN pip install -i  https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn  --upgrade pip
-RUN pip install --root-user-action=ignore -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn -r requirements.txt
+COPY ./tokenizer.py /app/
 
-CMD ["sh","-c","nuxt --port ${PORT} --module tokenizer.py --workers 2"]
+CMD ["sh", "-c", "exec nuxt --address 0.0.0.0 --port ${PORT} --module tokenizer.py --workers 2"]

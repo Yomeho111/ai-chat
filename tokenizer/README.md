@@ -2,13 +2,12 @@
 
 ## 镜像构建
 ``` 
-docker build -t 192.168.239.161:5000/2404/tokenizer:1.0.0 .
+docker build -t tokenizer:local .
 ```
 
 ## 服务启动
 ``` 
-docker service create --name 2404-tokenizer \
--p 3002:3002 --replicas 2 \
---with-registry-auth \
-192.168.239.161:5000/2404/tokenizer:1.0.0
+docker run --rm --name tokenizer -p 127.0.0.1:3002:3002 tokenizer:local
 ```
+
+完整的本地聊天服务使用 [Docker Compose](../ai-chat-stack/README.md) 启动，无需私有镜像仓库。

@@ -1,123 +1,278 @@
-version: "3.8"
+name: ai-chat-local
+
+x-kv-database: &kv-database
+  platform: linux/amd64
+  pull_policy: never
+  restart: unless-stopped
+  user: "10001:10001"
+  working_dir: /data
+  read_only: true
+  stop_grace_period: 60s
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+    - seccomp=unconfined
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+
 services:
+  kvstore:
+    <<: *kv-database
+    image: kvstore:dev
+    build:
+      context: ../third_party/kvstore
+      dockerfile: deploy/docker/Dockerfile.kvstore
+      args:
+        ENABLE_RAG: "OFF"
+        BUILD_JOBS: "${BUILD_JOBS:-2}"
+    command: ["--config", "/etc/kvstore/kvstore.ini"]
+    expose:
+      - "8050"
+    cpus: 2.0
+    mem_limit: 1g
+    configs:
+      - source: kvstore-conf
+        target: /etc/kvstore/kvstore.ini
+    volumes:
+      - kvstore-data:/data
+    healthcheck:
+      test: ["CMD", "/bin/bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8050"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10m
+
+  vectordb:
+    <<: *kv-database
+    image: vectordb:dev
+    build:
+      context: ../third_party/kvstore
+      dockerfile: deploy/docker/Dockerfile.kvstore
+      args:
+        ENABLE_RAG: "ON"
+        BUILD_JOBS: "${BUILD_JOBS:-2}"
+    command: ["--config", "/etc/kvstore/kvstore.ini"]
+    expose:
+      - "8060"
+    cpus: 2.0
+    mem_limit: 2g
+    configs:
+      - source: vectordb-conf
+        target: /etc/kvstore/kvstore.ini
+    volumes:
+      - vectordb-data:/data
+    healthcheck:
+      test: ["CMD", "/bin/bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8060"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10m
+
+  vectordb-service:
+    image: vectordb-service:dev
+    platform: linux/amd64
+    pull_policy: never
+    build:
+      context: ../third_party/kvstore
+      dockerfile: deploy/docker/Dockerfile.service
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    stop_grace_period: 60s
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      kvstore:
+        condition: service_healthy
+        restart: true
+      vectordb:
+        condition: service_healthy
+        restart: true
+    command:
+      - --listen
+      - 0.0.0.0:50051
+      - --server-config
+      - /etc/vectordb/server_config.json
+      - --model
+      - "${MODEL_NAME:-Alibaba-NLP/gte-multilingual-base}"
+    environment:
+      HF_HOME: /cache/huggingface
+      HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-0}"
+    expose:
+      - "50051"
+    cpus: 4.0
+    mem_limit: 6g
+    configs:
+      - source: vectordb-service-conf
+        target: /etc/vectordb/server_config.json
+    volumes:
+      - model-cache:/cache
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    healthcheck:
+      test:
+        - CMD
+        - /opt/venv/bin/python
+        - -c
+        - "import socket; socket.create_connection(('127.0.0.1', 50051), timeout=2).close()"
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 30m
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "123456"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "123456", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   tokenizer:
-    image: 192.168.239.161:5000/2404/tokenizer:1.0.0
+    build:
+      context: ../tokenizer
+    restart: unless-stopped
     environment:
       PORT: 3002
-    deploy:
-      mode: replicated
-      replicas: 2
-      endpoint_mode: vip
-      update_config:
-        parallelism: 2
-        order: start-first
-    command: ["sh","-c","nuxt --port 3002 --module tokenizer.py --workers 2"]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import json, urllib.request; req = urllib.request.Request('http://127.0.0.1:3002/tokenizer/gpt-3.5-turbo', data=json.dumps({'role': 'user', 'content': 'healthcheck'}).encode(), headers={'Content-Type': 'application/json'}); result = json.load(urllib.request.urlopen(req, timeout=3)); assert result['code'] == 200 and result['num_tokens'] > 0"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
   keywords:
-    image: 192.168.239.161:5000/2404/keywords-filter:1.0.0
-    deploy:
-      mode: replicated
-      replicas: 2
-      endpoint_mode: vip
-      update_config:
-        parallelism: 2
-        order: start-first
-      rollback_config:
-        parallelism: 2
-        order: start-first
+    build:
+      context: ../keywords-filter
+    platform: linux/amd64
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD","grpc_health_probe","-addr=:50051"]
+      test: ["CMD", "grpc_health_probe", "-addr=:50051"]
       interval: 5s
-      timeout: 1s
-      retries: 3
-      start_period: 1s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     configs:
-      - source: 2404-keywords-conf
+      - source: keywords-conf
         target: /app/config.yaml
-      - source: 2404-keywords-dict
+      - source: keywords-dict
         target: /app/dict.txt
+
   sensitive:
-    image: 192.168.239.161:5000/2404/keywords-filter:1.0.0
-    deploy:
-      mode: replicated
-      replicas: 2
-      endpoint_mode: vip
-      update_config:
-        parallelism: 2
-        order: start-first
-      rollback_config:
-        parallelism: 2
-        order: start-first
-    entrypoint: ["./keywords-filter"]
-    command: ["--config=config.yaml","--dict=dict.txt"]
+    build:
+      context: ../keywords-filter
+    platform: linux/amd64
+    restart: unless-stopped
     healthcheck:
-      test: [ "CMD","grpc_health_probe","-addr=:50051" ]
+      test: ["CMD", "grpc_health_probe", "-addr=:50051"]
       interval: 5s
-      timeout: 1s
-      retries: 3
-      start_period: 1s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     configs:
-      - source: 2404-sensitive-conf
+      - source: sensitive-conf
         target: /app/config.yaml
-      - source: 2404-sensitive-dict
+      - source: sensitive-dict
         target: /app/dict.txt
+
+  mock-openai-api:
+    build:
+      context: ../mock-openai-api
+    platform: linux/amd64
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8083/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    configs:
+      - source: mock-openai-conf
+        target: /app/config.yaml
+
   ai-chat-service:
-    image: 192.168.239.161:5000/2404/ai-chat-service:1.0.0
-    deploy:
-      mode: replicated
-      replicas: 2
-      endpoint_mode: vip
-      update_config:
-        parallelism: 2
-        order: start-first
-      rollback_config:
-        parallelism: 2
-        order: start-first
-    entrypoint: [ "./ai-chat-service" ]
-    command: [ "--config=config.yaml" ]
+    build:
+      context: ../ai-chat-service
+    platform: linux/amd64
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      vectordb-service:
+        condition: service_healthy
+      tokenizer:
+        condition: service_healthy
+      keywords:
+        condition: service_healthy
+      sensitive:
+        condition: service_healthy
+      mock-openai-api:
+        condition: service_healthy
     healthcheck:
-      test: [ "CMD","grpc_health_probe","-addr=:50051" ]
+      test: ["CMD", "grpc_health_probe", "-addr=:50051"]
       interval: 5s
-      timeout: 1s
-      retries: 3
-      start_period: 1s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     configs:
-      - source: 2404-ai-chat-service-conf
+      - source: ai-chat-service-conf
         target: /app/config.yaml
+
   ai-chat-backend:
-    image: 192.168.239.161:5000/2404/ai-chat-backend:1.0.0
+    build:
+      context: ../ai-chat-backend
+    platform: linux/amd64
+    restart: unless-stopped
     ports:
-      - "7080:80"
-    deploy:
-      mode: replicated
-      replicas: 2
-      endpoint_mode: vip
-      update_config:
-        parallelism: 2
-        order: start-first
-      rollback_config:
-        parallelism: 2
-        order: start-first
-    entrypoint: [ "./ai-chat-backend" ]
-    command: [ "--config=config.yaml" ]
+      - "127.0.0.1:7080:80"
+    depends_on:
+      ai-chat-service:
+        condition: service_healthy
     healthcheck:
-      test: [ "CMD","curl","http://localhost/api/health" ]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1/api/health"]
       interval: 5s
-      timeout: 1s
-      retries: 3
-      start_period: 1s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     configs:
-      - source: 2404-ai-chat-backend-conf
+      - source: ai-chat-backend-conf
         target: /app/config.yaml
+
 configs:
-  2404-keywords-conf:
+  kvstore-conf:
+    file: ../third_party/kvstore/deploy/compose/config/kvstore.ini
+  vectordb-conf:
+    file: ../third_party/kvstore/deploy/compose/config/vectordb.ini
+  vectordb-service-conf:
+    file: ../third_party/kvstore/deploy/compose/config/server_config.json
+  keywords-conf:
     file: ./configs/keywords.yaml
-  2404-keywords-dict:
+  keywords-dict:
     file: ./configs/keywords-dict.txt
-  2404-sensitive-conf:
+  sensitive-conf:
     file: ./configs/sensitive.yaml
-  2404-sensitive-dict:
+  sensitive-dict:
     file: ./configs/sensitive-dict.txt
-  2404-ai-chat-service-conf:
+  ai-chat-service-conf:
     file: ./configs/ai-chat-service.yaml
-  2404-ai-chat-backend-conf:
+  ai-chat-backend-conf:
     file: ./configs/ai-chat-backend.yaml
+  mock-openai-conf:
+    file: ./configs/mock-openai-api.yaml
+
+volumes:
+  kvstore-data:
+  vectordb-data:
+  model-cache:
+  redis-data:
