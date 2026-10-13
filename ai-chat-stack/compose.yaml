@@ -230,7 +230,7 @@ services:
     platform: linux/amd64
     restart: unless-stopped
     ports:
-      - "127.0.0.1:7080:80"
+      - "${WEB_BIND_ADDRESS:-0.0.0.0}:${WEB_PORT:-7080}:80"
     depends_on:
       ai-chat-service:
         condition: service_healthy
