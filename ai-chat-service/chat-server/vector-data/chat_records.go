@@ -8,8 +8,8 @@ import (
 )
 
 type IChatRecordsData interface {
-	Save(ctx context.Context, keywords string, answer string) error
-	Find(ctx context.Context, keywords string) (answer string, found bool, err error)
+	Save(ctx context.Context, question string, answer string) error
+	Find(ctx context.Context, question string) (answer string, found bool, err error)
 }
 
 type chatRecordsData struct {
@@ -26,11 +26,11 @@ func NewChatRecordsData(client proto.RagClient, timeout time.Duration, threshold
 	}
 }
 
-func (data *chatRecordsData) Save(ctx context.Context, keywords string, answer string) error {
+func (data *chatRecordsData) Save(ctx context.Context, question string, answer string) error {
 	ctx, cancel := context.WithTimeout(ctx, data.timeout)
 	defer cancel()
 
-	vectorResponse, err := data.client.Vset(ctx, &proto.VsetRequest{Text: keywords})
+	vectorResponse, err := data.client.Vset(ctx, &proto.VsetRequest{Text: question})
 	if err != nil {
 		return err
 	}
@@ -51,14 +51,14 @@ func (data *chatRecordsData) Save(ctx context.Context, keywords string, answer s
 	return nil
 }
 
-func (data *chatRecordsData) Find(ctx context.Context, keywords string) (string, bool, error) {
+func (data *chatRecordsData) Find(ctx context.Context, question string) (string, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, data.timeout)
 	defer cancel()
 
 	searchResponse, err := data.client.Vsearch(ctx, &proto.VsearchRequest{
 		Topk:      1,
 		Threshold: data.threshold,
-		Text:      keywords,
+		Text:      question,
 	})
 	if err != nil {
 		return "", false, err

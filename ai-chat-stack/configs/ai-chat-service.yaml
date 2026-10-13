@@ -37,15 +37,12 @@ chat:
   # 上下文消息条数
   context_len: 4
 redis:
-  host: "redis"
+  host: "context-kvstore"
   port: 6379
-  pwd: "123456"
+  pwd: ""
 dependOn:
   sensitive:
     address: "sensitive:50051"
-    accessToken: "ang1chubdev1ozhome256487d22sapguuv1ozhom"
-  keywords:
-    address: "keywords:50051"
     accessToken: "ang1chubdev1ozhome256487d22sapguuv1ozhom"
   tokenizer:
     address: "http://tokenizer:3002"
@@ -54,6 +51,6 @@ vectorDB:
   # kvstore Rag gRPC 服务地址
   address: "vectordb-service:50051"
   # 单次调用超时时长，单位 s
-  timeout: 5
-  # 余弦距离阈值，0.01 等价于相似度大于 0.99
-  threshold: 0.01
+  timeout: 30
+  # 余弦距离阈值，0.2 约等价于相似度大于 0.8
+  threshold: 0.2

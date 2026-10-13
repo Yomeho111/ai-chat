@@ -14,7 +14,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/sashabaranov/go-openai"
 	"io"
-	"strings"
 )
 
 type chatService struct {
@@ -50,10 +49,9 @@ func (s *chatService) ChatCompletion(ctx context.Context, in *proto.ChatCompleti
 		return res, nil
 	}
 
-	//关键词提取
-	keywords := app.keywords(in)
-	if len(keywords) > 0 && s.semanticCache != nil {
-		answer, found, err := s.semanticCache.Find(ctx, strings.Join(keywords, ","))
+	question := in.Message
+	if question != "" && s.semanticCache != nil {
+		answer, found, err := s.semanticCache.Find(ctx, question)
 		if err != nil {
 			s.log.Error(err)
 		} else if found {
@@ -105,8 +103,8 @@ func (s *chatService) ChatCompletion(ctx context.Context, in *proto.ChatCompleti
 		}
 	}()
 	go func() {
-		if len(keywords) > 0 && s.semanticCache != nil {
-			err := s.semanticCache.Save(context.Background(), strings.Join(keywords, ","), resp.Choices[0].Message.Content)
+		if question != "" && s.semanticCache != nil {
+			err := s.semanticCache.Save(context.Background(), question, resp.Choices[0].Message.Content)
 			if err != nil {
 				s.log.Error(err)
 			}
@@ -152,14 +150,9 @@ func (s *chatService) ChatCompletionStream(in *proto.ChatCompletionRequest, stre
 		return nil
 	}
 
-	//关键词提取
-	keywords := app.keywords(in)
-
-	if len(keywords) > 0 {
-		s.busMetrics.KeywordsQuestionsTotalCounter.Inc()
-	}
-	if len(keywords) > 0 && s.semanticCache != nil {
-		answer, found, err := s.semanticCache.Find(stream.Context(), strings.Join(keywords, ","))
+	question := in.Message
+	if question != "" && s.semanticCache != nil {
+		answer, found, err := s.semanticCache.Find(stream.Context(), question)
 		if err != nil {
 			s.log.Error(err)
 		} else if found {
@@ -270,8 +263,8 @@ func (s *chatService) ChatCompletionStream(in *proto.ChatCompletionRequest, stre
 	}()
 	go func() {
 		s.busMetrics.QuestionsTotalCounter.Inc()
-		if len(keywords) > 0 && s.semanticCache != nil {
-			err := s.semanticCache.Save(context.Background(), strings.Join(keywords, ","), completionContent)
+		if question != "" && s.semanticCache != nil {
+			err := s.semanticCache.Save(context.Background(), question, completionContent)
 			if err != nil {
 				s.log.Error(err)
 			}

@@ -252,24 +252,6 @@ func (a *app) saveContext(value *chat_context.ChatMessage) error {
 	}
 	return nil
 }
-func (a *app) keywords(in *proto.ChatCompletionRequest) []string {
-	pool := keywords_filter.GetKeywordsClientPool()
-	conn := pool.Get()
-	defer pool.Put(conn)
-	accessToken := config.GetConfig().DependOn.Keywords.AccessToken
-	client := keywords_proto.NewFilterClient(conn)
-	ctx := services.AppendBearerTokenToContext(context.Background(), accessToken)
-	req := &keywords_proto.FilterReq{
-		Text: in.Message,
-	}
-	res, err := client.FindAll(ctx, req)
-	if err != nil {
-		a.log.Error(err)
-		return []string{}
-	}
-	return res.Keywords
-
-}
 func (a *app) sensitive(in *proto.ChatCompletionRequest) (ok bool, msg string, err error) {
 	pool := keywords_filter.GetSensitiveClientPool()
 	conn := pool.Get()

@@ -123,17 +123,31 @@ services:
       retries: 6
       start_period: 30m
 
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "123456"]
+  context-kvstore:
+    <<: *kv-database
+    image: context-kvstore:dev
+    build:
+      context: ../third_party/kvstore
+      dockerfile: deploy/docker/Dockerfile.kvstore
+      args:
+        ENABLE_RAG: "OFF"
+        BUILD_JOBS: "${BUILD_JOBS:-2}"
+    command: ["--config", "/etc/kvstore/kvstore.ini"]
+    expose:
+      - "6379"
+    cpus: 1.0
+    mem_limit: 512m
+    configs:
+      - source: context-kvstore-conf
+        target: /etc/kvstore/kvstore.ini
     volumes:
-      - redis-data:/data
+      - context-kvstore-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "123456", "ping"]
-      interval: 5s
+      test: ["CMD", "/bin/bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/6379"]
+      interval: 10s
       timeout: 3s
       retries: 10
+      start_period: 10s
 
   tokenizer:
     build:
@@ -151,23 +165,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
-
-  keywords:
-    build:
-      context: ../keywords-filter
-    platform: linux/amd64
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "grpc_health_probe", "-addr=:50051"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 10s
-    configs:
-      - source: keywords-conf
-        target: /app/config.yaml
-      - source: keywords-dict
-        target: /app/dict.txt
 
   sensitive:
     build:
@@ -207,13 +204,11 @@ services:
     platform: linux/amd64
     restart: unless-stopped
     depends_on:
-      redis:
+      context-kvstore:
         condition: service_healthy
       vectordb-service:
         condition: service_healthy
       tokenizer:
-        condition: service_healthy
-      keywords:
         condition: service_healthy
       sensitive:
         condition: service_healthy
@@ -250,16 +245,14 @@ services:
         target: /app/config.yaml
 
 configs:
+  context-kvstore-conf:
+    file: ./configs/context-kvstore.ini
   kvstore-conf:
     file: ../third_party/kvstore/deploy/compose/config/kvstore.ini
   vectordb-conf:
     file: ../third_party/kvstore/deploy/compose/config/vectordb.ini
   vectordb-service-conf:
     file: ../third_party/kvstore/deploy/compose/config/server_config.json
-  keywords-conf:
-    file: ./configs/keywords.yaml
-  keywords-dict:
-    file: ./configs/keywords-dict.txt
   sensitive-conf:
     file: ./configs/sensitive.yaml
   sensitive-dict:
@@ -272,7 +265,7 @@ configs:
     file: ./configs/mock-openai-api.yaml
 
 volumes:
+  context-kvstore-data:
   kvstore-data:
   vectordb-data:
   model-cache:
-  redis-data:
