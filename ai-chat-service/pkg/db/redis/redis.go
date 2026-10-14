@@ -39,8 +39,10 @@ func getPool(cnf *config.Config) RedisPool {
 		pool: sync.Pool{
 			New: func() any {
 				rdb := redis.NewClient(&redis.Options{
-					Addr:     fmt.Sprintf("%s:%d", cnf.Redis.Host, cnf.Redis.Port),
-					Password: cnf.Redis.Pwd,
+					Addr:             fmt.Sprintf("%s:%d", cnf.Redis.Host, cnf.Redis.Port),
+					Password:         cnf.Redis.Pwd,
+					Protocol:         2,
+					DisableIndentity: true,
 				})
 				return rdb
 			},

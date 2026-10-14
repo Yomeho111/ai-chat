@@ -39,10 +39,6 @@ type Config struct {
 			Address     string
 			AccessToken string
 		}
-		Keywords struct {
-			Address     string
-			AccessToken string
-		}
 		Tokenizer struct {
 			Address string
 		}

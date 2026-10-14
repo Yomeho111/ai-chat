@@ -33,9 +33,10 @@ func (client *ragClientStub) Get(ctx context.Context, request *proto.GetRequest,
 }
 
 func TestSaveUsesVectorUUIDAsAnswerKey(t *testing.T) {
+	const question = "How do Go channels work?"
 	client := &ragClientStub{
 		vset: func(_ context.Context, request *proto.VsetRequest) (*proto.VsetResponse, error) {
-			if request.Text != "go,channel" {
+			if request.Text != question {
 				t.Fatalf("Vset text = %q", request.Text)
 			}
 			return &proto.VsetResponse{Uuid: "record-uuid"}, nil
@@ -49,16 +50,17 @@ func TestSaveUsesVectorUUIDAsAnswerKey(t *testing.T) {
 	}
 
 	cache := NewChatRecordsData(client, time.Second, 0.01)
-	if err := cache.Save(context.Background(), "go,channel", "cached answer"); err != nil {
+	if err := cache.Save(context.Background(), question, "cached answer"); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestFindFetchesAnswerForClosestUUID(t *testing.T) {
 	const threshold = float32(0.01)
+	const question = "How do Go channels work?"
 	client := &ragClientStub{
 		vsearch: func(_ context.Context, request *proto.VsearchRequest) (*proto.VsearchResponse, error) {
-			if request.Text != "go,channel" || request.Topk != 1 || request.Threshold != threshold {
+			if request.Text != question || request.Topk != 1 || request.Threshold != threshold {
 				t.Fatalf("Vsearch request = %#v", request)
 			}
 			return &proto.VsearchResponse{Uuids: []string{"record-uuid"}}, nil
@@ -72,7 +74,7 @@ func TestFindFetchesAnswerForClosestUUID(t *testing.T) {
 	}
 
 	cache := NewChatRecordsData(client, time.Second, threshold)
-	answer, found, err := cache.Find(context.Background(), "go,channel")
+	answer, found, err := cache.Find(context.Background(), question)
 	if err != nil {
 		t.Fatal(err)
 	}
