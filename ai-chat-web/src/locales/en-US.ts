@@ -53,6 +53,7 @@ export default {
     sourceSensitiveFilter: 'System content filter',
     sourcePending: 'Identifying source',
     sourceUnknown: 'Unknown source',
+    regenerate: 'Regenerate',
     tokenStatistics: 'Token statistics',
     tokensConsumed: 'Tokens consumed',
     tokensSaved: 'Tokens saved',

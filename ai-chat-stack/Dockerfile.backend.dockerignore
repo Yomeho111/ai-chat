@@ -1,0 +1,12 @@
+**
+!ai-chat-web/
+!ai-chat-web/**
+!ai-chat-backend/
+!ai-chat-backend/**
+**/node_modules
+**/dist
+**/runtime
+**/.git
+**/.env*
+!ai-chat-web/.env.production
+ai-chat-backend/www

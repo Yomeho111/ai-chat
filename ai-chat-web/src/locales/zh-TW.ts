@@ -53,6 +53,7 @@ export default {
     sourceSensitiveFilter: '系統敏感詞攔截',
     sourcePending: '來源識別中',
     sourceUnknown: '來源未知',
+    regenerate: '重新產生',
     tokenStatistics: 'Token 統計',
     tokensConsumed: '消耗 Token',
     tokensSaved: '節省 Token',
