@@ -6,6 +6,23 @@ export const useChatStore = defineStore('chat-store', {
   state: (): Chat.ChatState => getLocalState(),
 
   getters: {
+    getTokenTotals(state: Chat.ChatState) {
+      const totals = { consumedTokens: 0, savedTokens: 0, incompleteMessages: 0 }
+      for (const conversation of state.chat) {
+        for (const message of conversation.data) {
+          if (message.inversion)
+            continue
+          if (message.tokenUsage) {
+            totals.consumedTokens += message.tokenUsage.consumedTokens
+            totals.savedTokens += message.tokenUsage.savedTokens
+          }
+          if (!message.tokenUsage || message.tokenUsageComplete === false)
+            totals.incompleteMessages++
+        }
+      }
+      return totals
+    },
+
     getChatHistoryByCurrentActive(state: Chat.ChatState) {
       const index = state.history.findIndex(item => item.uuid === state.active)
       if (index !== -1)

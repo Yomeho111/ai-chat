@@ -12,6 +12,8 @@ import { useBasicLayout } from '@/hooks/useBasicLayout'
 interface Props {
   dateTime?: string
   source?: Chat.AnswerSource
+  tokenUsage?: Chat.TokenUsage
+  tokenUsageComplete?: boolean
   text?: string
   inversion?: boolean
   error?: boolean
@@ -166,6 +168,13 @@ function handleRegenerate() {
           </NDropdown>
         </div>
       </div>
+      <p v-if="!inversion" class="flex flex-wrap gap-x-3 gap-y-1 mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+        <span>{{ t('chat.tokensConsumed') }}: {{ tokenUsage?.consumedTokens.toLocaleString() ?? '--' }}</span>
+        <span>{{ t('chat.tokensSaved') }}: {{ tokenUsage?.savedTokens.toLocaleString() ?? '--' }}</span>
+        <span v-if="!tokenUsage || tokenUsageComplete === false">
+          {{ loading ? t('chat.tokenUsagePending') : t('chat.tokenUsageUnavailable') }}
+        </span>
+      </p>
     </div>
   </div>
 </template>

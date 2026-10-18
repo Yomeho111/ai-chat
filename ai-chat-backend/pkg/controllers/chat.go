@@ -48,12 +48,18 @@ type ChatMessage struct {
 	ID              string                                              `json:"id"`
 	Text            string                                              `json:"text"`
 	Source          string                                              `json:"source"`
+	TokenUsage      *ChatTokenUsage                                     `json:"tokenUsage,omitempty"`
 	Role            string                                              `json:"role"`
 	Name            string                                              `json:"name"`
 	Delta           string                                              `json:"delta"`
 	Detail          *ai_chat_service_proto.ChatCompletionStreamResponse `json:"detail"`
 	TokenCount      int                                                 `json:"tokenCount"`
 	ParentMessageId string                                              `json:"parentMessageId"`
+}
+
+type ChatTokenUsage struct {
+	ConsumedTokens int32 `json:"consumedTokens"`
+	SavedTokens    int32 `json:"savedTokens"`
 }
 
 func NewChatService(config *config.Config, log log.ILogger) (*ChatService, error) {
@@ -133,6 +139,12 @@ func (chat *ChatService) ChatProcess(ctx *gin.Context) {
 
 		if err != nil {
 			klog.Error(err)
+			if !firstChunk {
+				if _, writeErr := ctx.Writer.Write([]byte("\n")); writeErr != nil {
+					klog.Error(writeErr)
+					return
+				}
+			}
 			ctx.JSON(200, gin.H{
 				"status":  "Fail",
 				"message": fmt.Sprintf("OpenAI Event Error %v", err),
@@ -145,6 +157,13 @@ func (chat *ChatService) ChatProcess(ctx *gin.Context) {
 			result.ID = rsp.Id
 		}
 		result.Source = rsp.GetSource()
+		if usage := rsp.GetTokenUsage(); usage != nil {
+			result.TokenUsage = &ChatTokenUsage{
+				ConsumedTokens: usage.GetConsumedTokens(),
+				SavedTokens:    usage.GetSavedTokens(),
+			}
+			result.TokenCount = int(usage.GetConsumedTokens())
+		}
 
 		if len(rsp.Choices) > 0 {
 			content := rsp.Choices[0].Delta.Content

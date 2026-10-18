@@ -38,6 +38,7 @@ const { uuid } = route.params as { uuid: string }
 
 const dataSources = computed(() => chatStore.getChatByUuid(+uuid))
 const conversationList = computed(() => dataSources.value.filter(item => (!item.inversion && !item.error)))
+const tokenTotals = computed(() => chatStore.getTokenTotals)
 
 const prompt = ref<string>('')
 const loading = ref<boolean>(false)
@@ -59,8 +60,102 @@ function handleSubmit() {
   onConversation()
 }
 
+function parseChatResponse(responseText: string, complete: boolean) {
+  const chunk = responseText.trimEnd().split('\n').pop() ?? ''
+  let data: Chat.ConversationResponse & { status?: string; message?: string }
+  try {
+    data = JSON.parse(chunk)
+  }
+  catch (error) {
+    if (!complete && error instanceof SyntaxError)
+      return
+    throw error
+  }
+  if (data?.status && data.status !== 'Success')
+    throw new Error(data.message || t('common.wrong'))
+  if (!data || typeof data.text !== 'string' || typeof data.id !== 'string')
+    throw new Error(t('chat.invalidStreamResponse'))
+  if (data.tokenUsage) {
+    const { consumedTokens, savedTokens } = data.tokenUsage
+    if (!Number.isSafeInteger(consumedTokens) || consumedTokens < 0
+      || !Number.isSafeInteger(savedTokens) || savedTokens < 0)
+      throw new Error(t('chat.invalidTokenUsage'))
+  }
+  return data
+}
+
+async function fetchChatAnswer(index: number, originalPrompt: string, originalOptions: Chat.ConversationRequest) {
+  let message = originalPrompt
+  let options = { ...originalOptions }
+  let previousText = ''
+  let previousUsage: Chat.TokenUsage | undefined
+  let previousUsageComplete = true
+
+  while (true) {
+    let progressError: Error | undefined
+    let requestFinished = false
+    const updateResponse = (data: Chat.ConversationResponse, complete = false) => {
+      const tokenUsage = data.tokenUsage
+        ? {
+            consumedTokens: (previousUsage?.consumedTokens ?? 0) + data.tokenUsage.consumedTokens,
+            savedTokens: (previousUsage?.savedTokens ?? 0) + data.tokenUsage.savedTokens,
+          }
+        : previousUsage
+      updateChat(+uuid, index, {
+        dateTime: new Date().toLocaleString(),
+        text: previousText + data.text,
+        source: data.source,
+        tokenUsage,
+        tokenUsageComplete: complete && previousUsageComplete && !!data.tokenUsage,
+        inversion: false,
+        error: false,
+        loading: !complete,
+        conversationOptions: { conversationId: data.conversationId, parentMessageId: data.id },
+        requestOptions: { prompt: originalPrompt, options: { ...originalOptions } },
+      })
+      scrollToBottomIfAtBottom()
+    }
+    const response: unknown = await fetchChatAPIProcess<Chat.ConversationResponse>({
+      prompt: message,
+      options,
+      signal: controller.signal,
+      onDownloadProgress: ({ event }) => {
+        if (requestFinished || progressError)
+          return
+        try {
+          const data = parseChatResponse(event.target.responseText, false)
+          if (data)
+            updateResponse(data)
+        }
+        catch (error) {
+          progressError = error instanceof Error ? error : new Error(String(error))
+        }
+      },
+    }).finally(() => {
+      requestFinished = true
+    })
+    if (progressError)
+      throw progressError
+    if (typeof response !== 'string')
+      throw new Error(t('chat.invalidStreamResponse'))
+    const data = parseChatResponse(response, true)
+    if (!data)
+      throw new Error(t('chat.invalidStreamResponse'))
+    const finishReason = data.detail?.choices?.[0]?.finishReason ?? data.detail?.choices?.[0]?.finish_reason
+    const continueReply = openLongReply && finishReason === 'length'
+    updateResponse(data, !continueReply)
+    if (!continueReply)
+      return
+    previousText += data.text
+    previousUsage = getChatByUuidAndIndex(+uuid, index)?.tokenUsage
+    previousUsageComplete = previousUsageComplete && !!data.tokenUsage
+    options = { ...options, parentMessageId: data.id }
+    message = ''
+  }
+}
+
 async function onConversation() {
-  let message = prompt.value
+  const message = prompt.value
 
   if (loading.value)
     return
@@ -107,54 +202,7 @@ async function onConversation() {
   scrollToBottom()
 
   try {
-    let lastText = ''
-    const fetchChatAPIOnce = async () => {
-      await fetchChatAPIProcess<Chat.ConversationResponse>({
-        prompt: message,
-        options,
-        signal: controller.signal,
-        onDownloadProgress: ({ event }) => {
-          const xhr = event.target
-          const { responseText } = xhr
-          // Always process the final line
-          const lastIndex = responseText.lastIndexOf('\n', responseText.length - 2)
-          let chunk = responseText
-          if (lastIndex !== -1)
-            chunk = responseText.substring(lastIndex)
-          try {
-            const data: Chat.ConversationResponse = JSON.parse(chunk)
-            updateChat(
-              +uuid,
-              dataSources.value.length - 1,
-              {
-                dateTime: new Date().toLocaleString(),
-                text: lastText + data.text ?? '',
-                source: data.source,
-                inversion: false,
-                error: false,
-                loading: false,
-                conversationOptions: { conversationId: data.conversationId, parentMessageId: data.id },
-                requestOptions: { prompt: message, options: { ...options } },
-              },
-            )
-
-            if (openLongReply && data.detail.choices[0].finish_reason === 'length') {
-              options.parentMessageId = data.id
-              lastText = data.text
-              message = ''
-              return fetchChatAPIOnce()
-            }
-
-            scrollToBottomIfAtBottom()
-          }
-          catch (error) {
-          //
-          }
-        },
-      })
-    }
-
-    await fetchChatAPIOnce()
+    await fetchChatAnswer(dataSources.value.length - 1, message, options)
   }
   catch (error: any) {
     const errorMessage = error?.message ?? t('common.wrong')
@@ -214,7 +262,7 @@ async function onRegenerate(index: number) {
 
   const { requestOptions } = dataSources.value[index]
 
-  let message = requestOptions?.prompt ?? ''
+  const message = requestOptions?.prompt ?? ''
 
   let options: Chat.ConversationRequest = {}
 
@@ -233,56 +281,12 @@ async function onRegenerate(index: number) {
       error: false,
       loading: true,
       conversationOptions: null,
-      requestOptions: { prompt: message, ...options },
+      requestOptions: { prompt: message, options: { ...options } },
     },
   )
 
   try {
-    let lastText = ''
-    const fetchChatAPIOnce = async () => {
-      await fetchChatAPIProcess<Chat.ConversationResponse>({
-        prompt: message,
-        options,
-        signal: controller.signal,
-        onDownloadProgress: ({ event }) => {
-          const xhr = event.target
-          const { responseText } = xhr
-          // Always process the final line
-          const lastIndex = responseText.lastIndexOf('\n', responseText.length - 2)
-          let chunk = responseText
-          if (lastIndex !== -1)
-            chunk = responseText.substring(lastIndex)
-          try {
-            const data: Chat.ConversationResponse = JSON.parse(chunk)
-            updateChat(
-              +uuid,
-              index,
-              {
-                dateTime: new Date().toLocaleString(),
-                text: lastText + data.text ?? '',
-                source: data.source,
-                inversion: false,
-                error: false,
-                loading: false,
-                conversationOptions: { conversationId: data.conversationId, parentMessageId: data.id },
-                requestOptions: { prompt: message, ...options },
-              },
-            )
-
-            if (openLongReply && data.detail.choices[0].finish_reason === 'length') {
-              options.parentMessageId = data.id
-              lastText = data.text
-              message = ''
-              return fetchChatAPIOnce()
-            }
-          }
-          catch (error) {
-            //
-          }
-        },
-      })
-    }
-    await fetchChatAPIOnce()
+    await fetchChatAnswer(index, message, options)
   }
   catch (error: any) {
     if (error.message === 'canceled') {
@@ -298,6 +302,16 @@ async function onRegenerate(index: number) {
 
     const errorMessage = error?.message ?? t('common.wrong')
 
+    const currentChat = getChatByUuidAndIndex(+uuid, index)
+    if (currentChat?.text) {
+      updateChatSome(+uuid, index, {
+        text: `${currentChat.text}\n[${errorMessage}]`,
+        error: false,
+        loading: false,
+      })
+      return
+    }
+
     updateChat(
       +uuid,
       index,
@@ -308,7 +322,7 @@ async function onRegenerate(index: number) {
         error: true,
         loading: false,
         conversationOptions: null,
-        requestOptions: { prompt: message, ...options },
+        requestOptions: { prompt: message, options: { ...options } },
       },
     )
   }
@@ -474,6 +488,30 @@ onUnmounted(() => {
       @export="handleExport"
       @toggle-using-context="toggleUsingContext"
     />
+    <div class="flex justify-end flex-shrink-0 p-2 border-b dark:border-neutral-800">
+      <section
+        class="max-w-full px-3 py-2 border rounded-lg bg-neutral-50 dark:bg-neutral-900 dark:border-neutral-700"
+        :aria-label="t('chat.tokenStatistics')"
+      >
+        <div class="flex flex-wrap items-center justify-end gap-x-4 gap-y-1 text-xs">
+          <span class="font-semibold">{{ t('chat.tokenStatistics') }}</span>
+          <span class="text-blue-700 dark:text-blue-300">
+            {{ t('chat.tokensConsumed') }}:
+            <output class="font-bold tabular-nums">{{ tokenTotals.consumedTokens.toLocaleString() }}</output>
+          </span>
+          <span class="text-emerald-700 dark:text-emerald-300">
+            {{ t('chat.tokensSaved') }}:
+            <output class="font-bold tabular-nums">{{ tokenTotals.savedTokens.toLocaleString() }}</output>
+          </span>
+        </div>
+        <p class="mt-1 text-xs text-right text-neutral-500 dark:text-neutral-400">
+          {{ t('chat.tokenStatisticsScope') }}
+        </p>
+        <p v-if="tokenTotals.incompleteMessages" class="mt-1 text-xs text-right text-amber-700 dark:text-amber-300">
+          {{ t('chat.tokenStatisticsIncomplete', { count: tokenTotals.incompleteMessages }) }}
+        </p>
+      </section>
+    </div>
     <main class="flex-1 overflow-hidden">
       <div
         id="scrollRef"
@@ -498,6 +536,8 @@ onUnmounted(() => {
                 :key="index"
                 :date-time="item.dateTime"
                 :source="item.source"
+                :token-usage="item.tokenUsage"
+                :token-usage-complete="item.tokenUsageComplete"
                 :text="item.text"
                 :inversion="item.inversion"
                 :error="item.error"

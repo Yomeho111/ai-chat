@@ -2,10 +2,17 @@ declare namespace Chat {
 
 	type AnswerSource = 'vector_db' | 'llm_api' | 'sensitive_filter'
 
+	interface TokenUsage {
+		consumedTokens: number
+		savedTokens: number
+	}
+
 	interface Chat {
 		dateTime: string
 		text: string
 		source?: AnswerSource
+		tokenUsage?: TokenUsage
+		tokenUsageComplete?: boolean
 		inversion?: boolean
 		error?: boolean
 		loading?: boolean
@@ -34,8 +41,9 @@ declare namespace Chat {
 	interface ConversationResponse {
 		conversationId: string
 		source?: AnswerSource
+		tokenUsage?: TokenUsage
 		detail: {
-			choices: { finish_reason: string; index: number; logprobs: any; text: string }[]
+			choices: { finish_reason?: string; finishReason?: string; index: number; logprobs: any; text: string }[]
 			created: number
 			id: string
 			model: string

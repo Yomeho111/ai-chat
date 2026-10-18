@@ -27,6 +27,9 @@ func GetTokens(message *openai.ChatCompletionMessage, model string) (int, error)
 	if info.Code != 200 {
 		return 0, fmt.Errorf("%v", info.Msg)
 	}
+	if info.Tokens < 0 {
+		return 0, fmt.Errorf("tokenizer returned a negative token count: %d", info.Tokens)
+	}
 	return info.Tokens, nil
 }
 
@@ -38,6 +41,10 @@ func postJSON(url string, requestData *openai.ChatCompletionMessage, responseDat
 	resp, err := httpClient.Post(url, "application/json", bytes.NewReader(requestBody))
 	if err != nil {
 		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("tokenizer HTTP status: %s", resp.Status)
 	}
 	return json.NewDecoder(resp.Body).Decode(responseData)
 }
