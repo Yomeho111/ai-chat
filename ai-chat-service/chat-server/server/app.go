@@ -11,6 +11,7 @@ import (
 	keywords_proto "ai-chat-service/services/keywords-filter/proto"
 	"ai-chat-service/services/tokenizer"
 	"context"
+	"fmt"
 	"github.com/google/uuid"
 	"github.com/sashabaranov/go-openai"
 	"time"
@@ -233,20 +234,14 @@ func (a *app) buildChatCompletionStreamResponseList(id, msg, source string) []*p
 	return list
 }
 
-func (a *app) savedTokenUsage(in *proto.ChatCompletionRequest, answer string) (*proto.TokenUsage, error) {
-	req, promptTokens, _, _, err := a.buildChatCompletionRequest(in, false)
-	if err != nil {
+func (a *app) savedTokenUsage(in *proto.ChatCompletionRequest, generationTokens int32) (*proto.TokenUsage, error) {
+	if generationTokens <= 0 {
+		return nil, fmt.Errorf("cached answer has an invalid generation token count: %d", generationTokens)
+	}
+	if _, _, _, _, err := a.buildChatCompletionRequest(in, false); err != nil {
 		return nil, err
 	}
-	message := openai.ChatCompletionMessage{
-		Role:    openai.ChatMessageRoleAssistant,
-		Content: answer,
-	}
-	resultTokens, err := tokenizer.GetTokens(&message, req.Model)
-	if err != nil {
-		return nil, err
-	}
-	return &proto.TokenUsage{SavedTokens: int32(promptTokens + resultTokens)}, nil
+	return &proto.TokenUsage{SavedTokens: generationTokens}, nil
 }
 
 func (a *app) getContext(id string) []*chat_context.ChatMessage {
