@@ -233,20 +233,20 @@ func (a *app) buildChatCompletionStreamResponseList(id, msg, source string) []*p
 	return list
 }
 
-func (a *app) savedTokenUsage(question, answer string) (*proto.TokenUsage, error) {
-	messages := []openai.ChatCompletionMessage{
-		{Role: openai.ChatMessageRoleUser, Content: question},
-		{Role: openai.ChatMessageRoleAssistant, Content: answer},
+func (a *app) savedTokenUsage(in *proto.ChatCompletionRequest, answer string) (*proto.TokenUsage, error) {
+	req, promptTokens, _, _, err := a.buildChatCompletionRequest(in, false)
+	if err != nil {
+		return nil, err
 	}
-	total := 0
-	for _, message := range messages {
-		tokens, err := tokenizer.GetTokens(&message, a.openaiConf.Model)
-		if err != nil {
-			return nil, err
-		}
-		total += tokens
+	message := openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleAssistant,
+		Content: answer,
 	}
-	return &proto.TokenUsage{SavedTokens: int32(total)}, nil
+	resultTokens, err := tokenizer.GetTokens(&message, req.Model)
+	if err != nil {
+		return nil, err
+	}
+	return &proto.TokenUsage{SavedTokens: int32(promptTokens + resultTokens)}, nil
 }
 
 func (a *app) getContext(id string) []*chat_context.ChatMessage {

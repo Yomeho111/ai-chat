@@ -57,7 +57,7 @@ func (s *chatService) ChatCompletion(ctx context.Context, in *proto.ChatCompleti
 		if err != nil {
 			s.log.Error(err)
 		} else if found {
-			usage, err := app.savedTokenUsage(question, answer)
+			usage, err := app.savedTokenUsage(in, answer)
 			if err != nil {
 				s.log.Error(err)
 				return nil, err
@@ -181,7 +181,7 @@ func (s *chatService) ChatCompletionStream(in *proto.ChatCompletionRequest, stre
 		if err != nil {
 			s.log.Error(err)
 		} else if found {
-			usage, err := app.savedTokenUsage(question, answer)
+			usage, err := app.savedTokenUsage(in, answer)
 			if err != nil {
 				s.busMetrics.ErrQuestionsTotalCounter.Inc()
 				s.log.Error(err)
