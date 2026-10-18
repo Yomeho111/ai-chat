@@ -52,17 +52,19 @@ func (s *chatService) ChatCompletion(ctx context.Context, in *proto.ChatCompleti
 	}
 
 	question := in.Message
+	var cachedRecord vector_data.ChatRecord
 	if question != "" && s.semanticCache != nil {
-		answer, found, err := s.semanticCache.Find(ctx, question)
+		record, found, err := s.semanticCache.Find(ctx, question)
+		cachedRecord = record
 		if err != nil {
 			s.log.Error(err)
 		} else if found {
-			usage, err := app.savedTokenUsage(in, answer)
+			usage, err := app.savedTokenUsage(in, record.ConsumedTokens)
 			if err != nil {
 				s.log.Error(err)
 				return nil, err
 			}
-			res := app.buildChatCompletionResponse(answer, answerSourceVectorDB)
+			res := app.buildChatCompletionResponse(record.Answer, answerSourceVectorDB)
 			res.TokenUsage = usage
 			return res, nil
 		}
@@ -128,7 +130,11 @@ func (s *chatService) ChatCompletion(ctx context.Context, in *proto.ChatCompleti
 	}()
 	go func() {
 		if question != "" && s.semanticCache != nil {
-			err := s.semanticCache.Save(context.Background(), question, resp.Choices[0].Message.Content)
+			err := s.semanticCache.Save(context.Background(), question, vector_data.ChatRecord{
+				UUID:           cachedRecord.UUID,
+				Answer:         resp.Choices[0].Message.Content,
+				ConsumedTokens: res.TokenUsage.ConsumedTokens,
+			})
 			if err != nil {
 				s.log.Error(err)
 			}
@@ -176,12 +182,14 @@ func (s *chatService) ChatCompletionStream(in *proto.ChatCompletionRequest, stre
 	}
 
 	question := in.Message
+	var cachedRecord vector_data.ChatRecord
 	if question != "" && s.semanticCache != nil {
-		answer, found, err := s.semanticCache.Find(stream.Context(), question)
+		record, found, err := s.semanticCache.Find(stream.Context(), question)
+		cachedRecord = record
 		if err != nil {
 			s.log.Error(err)
 		} else if found {
-			usage, err := app.savedTokenUsage(in, answer)
+			usage, err := app.savedTokenUsage(in, record.ConsumedTokens)
 			if err != nil {
 				s.busMetrics.ErrQuestionsTotalCounter.Inc()
 				s.log.Error(err)
@@ -196,7 +204,7 @@ func (s *chatService) ChatCompletionStream(in *proto.ChatCompletionRequest, stre
 				s.log.Error(err)
 				return err
 			}
-			resList := app.buildChatCompletionStreamResponseList(resId, answer, answerSourceVectorDB)
+			resList := app.buildChatCompletionStreamResponseList(resId, record.Answer, answerSourceVectorDB)
 			for _, res := range resList {
 				err = stream.Send(res)
 				if err != nil {
@@ -323,7 +331,11 @@ func (s *chatService) ChatCompletionStream(in *proto.ChatCompletionRequest, stre
 	go func() {
 		s.busMetrics.QuestionsTotalCounter.Inc()
 		if question != "" && s.semanticCache != nil {
-			err := s.semanticCache.Save(context.Background(), question, completionContent)
+			err := s.semanticCache.Save(context.Background(), question, vector_data.ChatRecord{
+				UUID:           cachedRecord.UUID,
+				Answer:         completionContent,
+				ConsumedTokens: endRes.TokenUsage.ConsumedTokens,
+			})
 			if err != nil {
 				s.log.Error(err)
 			}

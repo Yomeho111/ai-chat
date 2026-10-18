@@ -32,29 +32,33 @@ func (c tokenUsageContextCache) Close() {}
 
 func TestSavedTokenUsage(t *testing.T) {
 	tests := []struct {
-		name          string
-		system        string
-		enableContext bool
-		maxTokens     int
-		contextLen    int
-		failContent   string
-		want          int32
-		wantError     bool
+		name            string
+		system          string
+		enableContext   bool
+		originalContext bool
+		maxTokens       int
+		contextLen      int
+		failContent     string
+		recordedTokens  int32
+		wantError       bool
 	}{
-		{name: "question and answer with message overhead", want: 36},
-		{name: "system prompt matches API total", system: "system", want: 76},
-		{name: "disabled context", system: "system", want: 76},
-		{name: "enabled context", system: "system", enableContext: true, want: 104},
-		{name: "context limited by budget", system: "system", enableContext: true, maxTokens: 2110, want: 91},
-		{name: "context limited by count", system: "system", enableContext: true, contextLen: 1, want: 91},
-		{name: "question exceeds budget", system: "system", maxTokens: 2094, wantError: true},
-		{name: "system tokenizer failure", system: "system", failContent: "system", wantError: true},
-		{name: "question tokenizer failure", failContent: "Hello", wantError: true},
-		{name: "answer tokenizer failure", failContent: "answer", wantError: true},
+		{name: "question and answer with message overhead", recordedTokens: 49},
+		{name: "system prompt matches original API total", system: "system", recordedTokens: 89},
+		{name: "disabled context", system: "system", recordedTokens: 89},
+		{name: "new context must not inflate saved tokens", system: "system", enableContext: true, recordedTokens: 89},
+		{name: "context limited by budget", system: "system", enableContext: true, maxTokens: 2139, recordedTokens: 89},
+		{name: "context limited by count", system: "system", enableContext: true, contextLen: 1, recordedTokens: 89},
+		{name: "original generation included different context", system: "system", originalContext: true, recordedTokens: 140},
+		{name: "question exceeds budget", system: "system", maxTokens: 2094, recordedTokens: 89, wantError: true},
+		{name: "system tokenizer failure", system: "system", failContent: "system", recordedTokens: 89, wantError: true},
+		{name: "question tokenizer failure", failContent: "Hello", recordedTokens: 49, wantError: true},
+		{name: "cached answer is not retokenized", failContent: "answer", recordedTokens: 49},
+		{name: "missing generation count", wantError: true},
+		{name: "negative generation count", recordedTokens: -1, wantError: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			counts := map[string]int{"system": 40, "Hello": 5, "answer": 29}
+			counts := map[string]int{"system": 40, "Hello": 18, "answer": 29}
 			tokenizerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path != "/tokenizer/test-model" {
 					t.Errorf("tokenizer path = %q, want overridden model", r.URL.Path)
@@ -103,12 +107,12 @@ func TestSavedTokenUsage(t *testing.T) {
 			cache := tokenUsageContextCache{
 				"previous-answer": {
 					PID:     "previous-question",
-					Message: openai.ChatCompletionMessage{Role: openai.ChatMessageRoleAssistant, Content: "previous answer"},
-					Tokens:  13,
+					Message: openai.ChatCompletionMessage{Role: openai.ChatMessageRoleAssistant, Content: "answer"},
+					Tokens:  counts["answer"],
 				},
 				"previous-question": {
-					Message: openai.ChatCompletionMessage{Role: openai.ChatMessageRoleUser, Content: "previous question"},
-					Tokens:  11,
+					Message: openai.ChatCompletionMessage{Role: openai.ChatMessageRoleUser, Content: "Hello"},
+					Tokens:  counts["Hello"],
 				},
 			}
 			in := &proto.ChatCompletionRequest{
@@ -118,7 +122,7 @@ func TestSavedTokenUsage(t *testing.T) {
 				ChatParam:     &proto.ChatParam{Model: "test-model"},
 			}
 			app := (&chatService{config: conf, log: logger}).newApp(in, cache)
-			usage, err := app.savedTokenUsage(in, "answer")
+			usage, err := app.savedTokenUsage(in, tt.recordedTokens)
 			if tt.wantError {
 				if err == nil || usage != nil {
 					t.Fatalf("savedTokenUsage() = %v, %v; want nil usage and error", usage, err)
@@ -128,15 +132,26 @@ func TestSavedTokenUsage(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if usage.SavedTokens != tt.want || usage.ConsumedTokens != 0 {
-				t.Fatalf("usage = %v, want saved %d and consumed 0", usage, tt.want)
+			if usage.SavedTokens != tt.recordedTokens || usage.ConsumedTokens != 0 {
+				t.Fatalf("usage = %v, want saved %d and consumed 0", usage, tt.recordedTokens)
 			}
-			_, promptTokens, _, _, err := app.buildChatCompletionRequest(in, true)
+			originalRequest := *in
+			originalRequest.EnableContext = tt.originalContext
+			_, originalPromptTokens, _, _, err := app.buildChatCompletionRequest(&originalRequest, true)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if want := int32(promptTokens + counts["answer"]); usage.SavedTokens != want {
-				t.Fatalf("saved tokens = %d, API consumed tokens = %d", usage.SavedTokens, want)
+			if want := int32(originalPromptTokens + counts["answer"]); usage.SavedTokens != want {
+				t.Fatalf("saved tokens = %d, original API consumed tokens = %d", usage.SavedTokens, want)
+			}
+			if tt.name == "new context must not inflate saved tokens" {
+				_, repeatedPromptTokens, _, _, err := app.buildChatCompletionRequest(in, true)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if repeatedTotal := repeatedPromptTokens + counts["answer"]; repeatedTotal != 140 {
+					t.Fatalf("repeated request estimate = %d, want regression fixture of 140 (original cost 89)", repeatedTotal)
+				}
 			}
 			if len(cache) != 2 {
 				t.Fatal("estimating saved tokens must not write context")
