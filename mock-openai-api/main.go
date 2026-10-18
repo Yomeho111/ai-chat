@@ -1,7 +1,6 @@
 package main
 
 import (
-	bytes2 "bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -56,24 +55,27 @@ func chatCompletion(ctx *gin.Context) {
 		return
 	}
 	list := buildChatCompletionStreamResponseList(msg)
-	ctx.Header("Content-type", "application/octet-stream")
+	ctx.Header("Content-Type", "text/event-stream")
+	ctx.Header("Cache-Control", "no-cache")
 	for i := 0; i < len(list); i++ {
 		item := list[i]
-		if i != 0 {
-			ctx.Writer.Write([]byte("\n"))
-		}
-		var buffer bytes2.Buffer
-		buffer.WriteString("data: ")
 		bytes, err := json.Marshal(item)
 		if err != nil {
-			fmt.Println(err)
-			break
+			log.Printf("encode stream event: %v", err)
+			return
 		}
-		buffer.Write(bytes)
-		ctx.Writer.Write(buffer.Bytes())
+		if _, err := fmt.Fprintf(ctx.Writer, "data: %s\n\n", bytes); err != nil {
+			log.Printf("write stream event: %v", err)
+			return
+		}
 		ctx.Writer.Flush()
 		time.Sleep(time.Millisecond * 100)
 	}
+	if _, err := ctx.Writer.Write([]byte("data: [DONE]\n\n")); err != nil {
+		log.Printf("write stream terminator: %v", err)
+		return
+	}
+	ctx.Writer.Flush()
 }
 
 func buildChatCompletionResponse(msg string) openai.ChatCompletionResponse {

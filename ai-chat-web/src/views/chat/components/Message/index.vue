@@ -151,6 +151,7 @@ function handleRegenerate() {
         <div class="flex flex-col">
           <button
             v-if="!inversion"
+            :aria-label="t('chat.regenerate')"
             class="mb-2 transition text-neutral-300 hover:text-neutral-800 dark:hover:text-neutral-300"
             @click="handleRegenerate"
           >
@@ -162,7 +163,7 @@ function handleRegenerate() {
             :options="options"
             @select="handleSelect"
           >
-            <button class="transition text-neutral-300 hover:text-neutral-800 dark:hover:text-neutral-200">
+            <button :aria-label="t('common.action')" class="transition text-neutral-300 hover:text-neutral-800 dark:hover:text-neutral-200">
               <SvgIcon icon="ri:more-2-fill" />
             </button>
           </NDropdown>
