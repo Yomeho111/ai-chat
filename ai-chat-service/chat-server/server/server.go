@@ -10,6 +10,7 @@ import (
 	"ai-chat-service/services/tokenizer"
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/google/uuid"
 	"github.com/sashabaranov/go-openai"
@@ -45,7 +46,8 @@ func (s *chatService) ChatCompletion(ctx context.Context, in *proto.ChatCompleti
 		return nil, err
 	}
 	if !ok {
-		res := app.buildChatCompletionResponse(msg)
+		res := app.buildChatCompletionResponse(msg, answerSourceSensitiveFilter)
+		res.TokenUsage = &proto.TokenUsage{}
 		return res, nil
 	}
 
@@ -55,14 +57,34 @@ func (s *chatService) ChatCompletion(ctx context.Context, in *proto.ChatCompleti
 		if err != nil {
 			s.log.Error(err)
 		} else if found {
-			res := app.buildChatCompletionResponse(answer)
+			usage, err := app.savedTokenUsage(question, answer)
+			if err != nil {
+				s.log.Error(err)
+				return nil, err
+			}
+			res := app.buildChatCompletionResponse(answer, answerSourceVectorDB)
+			res.TokenUsage = usage
 			return res, nil
 		}
 	}
 
 	client := app.getOpenaiClient()
-	req, _, currTokens, currMessage, err := app.buildChatCompletionRequest(in, false)
+	req, promptTokens, currTokens, currMessage, err := app.buildChatCompletionRequest(in, false)
+	if err != nil {
+		s.log.Error(err)
+		return nil, err
+	}
 	resp, err := client.CreateChatCompletion(ctx, req)
+	if err != nil {
+		s.log.Error(err)
+		return nil, err
+	}
+	if len(resp.Choices) == 0 {
+		err := fmt.Errorf("chat completion returned no choices")
+		s.log.Error(err)
+		return nil, err
+	}
+	resultTokens, err := tokenizer.GetTokens(&resp.Choices[0].Message, req.Model)
 	if err != nil {
 		s.log.Error(err)
 		return nil, err
@@ -78,6 +100,8 @@ func (s *chatService) ChatCompletion(ctx context.Context, in *proto.ChatCompleti
 		s.log.Error(err)
 		return nil, err
 	}
+	res.Source = answerSourceLLMAPI
+	res.TokenUsage = &proto.TokenUsage{ConsumedTokens: int32(promptTokens + resultTokens)}
 	go func() {
 		reqContext := &chat_context.ChatMessage{
 			ID:      in.Id,
@@ -94,7 +118,7 @@ func (s *chatService) ChatCompletion(ctx context.Context, in *proto.ChatCompleti
 			ID:      resp.ID,
 			PID:     reqContext.ID,
 			Message: resp.Choices[0].Message,
-			Tokens:  resp.Usage.CompletionTokens,
+			Tokens:  resultTokens,
 		}
 		err = app.saveContext(resContext)
 		if err != nil {
@@ -127,14 +151,15 @@ func (s *chatService) ChatCompletionStream(in *proto.ChatCompletionRequest, stre
 	if !ok {
 		s.busMetrics.SensitiveQuestionsTotalCounter.Inc()
 		resId := uuid.New().String()
-		startRes := app.buildChatCompletionStreamResponse(resId, "", "")
-		endRes := app.buildChatCompletionStreamResponse(resId, "", "stop")
+		startRes := app.buildChatCompletionStreamResponse(resId, "", "", answerSourceSensitiveFilter)
+		endRes := app.buildChatCompletionStreamResponse(resId, "", "stop", answerSourceSensitiveFilter)
+		endRes.TokenUsage = &proto.TokenUsage{}
 		err = stream.Send(startRes)
 		if err != nil {
 			s.log.Error(err)
 			return err
 		}
-		resList := app.buildChatCompletionStreamResponseList(resId, msg)
+		resList := app.buildChatCompletionStreamResponseList(resId, msg, answerSourceSensitiveFilter)
 		for _, res := range resList {
 			err = stream.Send(res)
 			if err != nil {
@@ -156,15 +181,22 @@ func (s *chatService) ChatCompletionStream(in *proto.ChatCompletionRequest, stre
 		if err != nil {
 			s.log.Error(err)
 		} else if found {
+			usage, err := app.savedTokenUsage(question, answer)
+			if err != nil {
+				s.busMetrics.ErrQuestionsTotalCounter.Inc()
+				s.log.Error(err)
+				return err
+			}
 			resId := uuid.New().String()
-			startRes := app.buildChatCompletionStreamResponse(resId, "", "")
-			endRes := app.buildChatCompletionStreamResponse(resId, "", "stop")
+			startRes := app.buildChatCompletionStreamResponse(resId, "", "", answerSourceVectorDB)
+			endRes := app.buildChatCompletionStreamResponse(resId, "", "stop", answerSourceVectorDB)
+			endRes.TokenUsage = usage
 			err = stream.Send(startRes)
 			if err != nil {
 				s.log.Error(err)
 				return err
 			}
-			resList := app.buildChatCompletionStreamResponseList(resId, answer)
+			resList := app.buildChatCompletionStreamResponseList(resId, answer, answerSourceVectorDB)
 			for _, res := range resList {
 				err = stream.Send(res)
 				if err != nil {
@@ -182,7 +214,12 @@ func (s *chatService) ChatCompletionStream(in *proto.ChatCompletionRequest, stre
 	}
 
 	client := app.getOpenaiClient()
-	req, _, currTokens, currMessage, err := app.buildChatCompletionRequest(in, false)
+	req, promptTokens, currTokens, currMessage, err := app.buildChatCompletionRequest(in, true)
+	if err != nil {
+		s.busMetrics.ErrQuestionsTotalCounter.Inc()
+		s.log.Error(err)
+		return err
+	}
 	chatStream, err := client.CreateChatCompletionStream(stream.Context(), req)
 	if err != nil {
 		s.busMetrics.ErrQuestionsTotalCounter.Inc()
@@ -192,6 +229,7 @@ func (s *chatService) ChatCompletionStream(in *proto.ChatCompletionRequest, stre
 	defer chatStream.Close()
 	completionContent := ""
 	resultID := ""
+	var endRes *proto.ChatCompletionStreamResponse
 	for {
 		resp, err := chatStream.Recv()
 		if err != nil && err != io.EOF {
@@ -200,6 +238,11 @@ func (s *chatService) ChatCompletionStream(in *proto.ChatCompletionRequest, stre
 		}
 		if err == io.EOF {
 			break
+		}
+		if len(resp.Choices) == 0 {
+			err := fmt.Errorf("chat completion stream returned no choices")
+			s.log.Error(err)
+			return err
 		}
 		if resultID == "" {
 			resultID = resp.ID
@@ -216,11 +259,21 @@ func (s *chatService) ChatCompletionStream(in *proto.ChatCompletionRequest, stre
 			s.log.Error(err)
 			return err
 		}
+		res.Source = answerSourceLLMAPI
+		if res.Choices[0].FinishReason != "" {
+			endRes = res
+			continue
+		}
 		err = stream.Send(res)
 		if err != nil {
 			s.log.Error(err)
 			return err
 		}
+	}
+	if endRes == nil {
+		err := fmt.Errorf("chat completion stream ended without a finish reason")
+		s.log.Error(err)
+		return err
 	}
 	resultMessage := openai.ChatCompletionMessage{
 		Role:    openai.ChatMessageRoleAssistant,
@@ -233,6 +286,12 @@ func (s *chatService) ChatCompletionStream(in *proto.ChatCompletionRequest, stre
 	resultTokens, err := tokenizer.GetTokens(&resultMessage, model)
 	if err != nil {
 		s.busMetrics.ErrQuestionsTotalCounter.Inc()
+		s.log.Error(err)
+		return err
+	}
+	// Send usage with the terminal chunk before the client starts any continuation.
+	endRes.TokenUsage = &proto.TokenUsage{ConsumedTokens: int32(promptTokens + resultTokens)}
+	if err := stream.Send(endRes); err != nil {
 		s.log.Error(err)
 		return err
 	}

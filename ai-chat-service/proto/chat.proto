@@ -31,6 +31,9 @@ message ChatCompletionResponse {
   string model = 4 [json_name = "model"];
   repeated  ChatCompletionChoice choices = 5 [json_name = "choices"];
   Usage usage = 6[json_name = "usage"];
+  // vector_db, llm_api, or sensitive_filter; empty for legacy responses.
+  string source = 7 [json_name = "source"];
+  TokenUsage tokenUsage = 8 [json_name = "token_usage"];
 }
 message ChatCompletionChoice {
   int32 index = 1[json_name = "index"];
@@ -48,6 +51,11 @@ message Usage {
   int32 totalTokens      = 3 [json_name = "total_tokens"];
 }
 
+message TokenUsage {
+  int32 consumedTokens = 1 [json_name = "consumed_tokens"];
+  int32 savedTokens = 2 [json_name = "saved_tokens"];
+}
+
 // 服务响应消息，流式响应
 message  ChatCompletionStreamResponse {
   string id = 1 [json_name = "id"];
@@ -55,6 +63,9 @@ message  ChatCompletionStreamResponse {
   int64 created = 3 [json_name = "created"];
   string model = 4 [json_name = "model"];
   repeated  ChatCompletionStreamChoice choices = 5 [json_name = "choices"];
+  // vector_db, llm_api, or sensitive_filter; empty for legacy responses.
+  string source = 6 [json_name = "source"];
+  TokenUsage tokenUsage = 7 [json_name = "token_usage"];
 }
 message ChatCompletionStreamChoice {
   int32 index = 1[json_name = "index"];
