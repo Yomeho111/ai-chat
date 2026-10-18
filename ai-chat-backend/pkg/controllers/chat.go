@@ -47,6 +47,7 @@ type ChatMessageRequestOptions struct {
 type ChatMessage struct {
 	ID              string                                              `json:"id"`
 	Text            string                                              `json:"text"`
+	Source          string                                              `json:"source"`
 	Role            string                                              `json:"role"`
 	Name            string                                              `json:"name"`
 	Delta           string                                              `json:"delta"`
@@ -143,6 +144,7 @@ func (chat *ChatService) ChatProcess(ctx *gin.Context) {
 		if rsp.Id != "" {
 			result.ID = rsp.Id
 		}
+		result.Source = rsp.GetSource()
 
 		if len(rsp.Choices) > 0 {
 			content := rsp.Choices[0].Delta.Content

@@ -48,6 +48,11 @@ export default {
     clearHistoryConfirm: '确定清空聊天记录?',
     preview: '预览',
     showRawText: '显示原文',
+    sourceVectorDB: '向量数据库命中',
+    sourceLLMAPI: '大模型 API 返回',
+    sourceSensitiveFilter: '系统敏感词拦截',
+    sourcePending: '来源识别中',
+    sourceUnknown: '来源未知',
   },
   setting: {
     setting: '设置',

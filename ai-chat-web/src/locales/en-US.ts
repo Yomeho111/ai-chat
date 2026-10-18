@@ -48,6 +48,11 @@ export default {
     clearHistoryConfirm: 'Are you sure to clear chat history?',
     preview: 'Preview',
     showRawText: 'Show as raw text',
+    sourceVectorDB: 'Vector database hit',
+    sourceLLMAPI: 'LLM API response',
+    sourceSensitiveFilter: 'System content filter',
+    sourcePending: 'Identifying source',
+    sourceUnknown: 'Unknown source',
   },
   setting: {
     setting: 'Setting',

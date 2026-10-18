@@ -48,6 +48,11 @@ export default {
     clearHistoryConfirm: '確定清除紀錄?',
     preview: '預覽',
     showRawText: '顯示原文',
+    sourceVectorDB: '向量資料庫命中',
+    sourceLLMAPI: '大模型 API 回傳',
+    sourceSensitiveFilter: '系統敏感詞攔截',
+    sourcePending: '來源識別中',
+    sourceUnknown: '來源未知',
   },
   setting: {
     setting: '設定',

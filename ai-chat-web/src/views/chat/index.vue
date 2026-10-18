@@ -122,13 +122,14 @@ async function onConversation() {
           if (lastIndex !== -1)
             chunk = responseText.substring(lastIndex)
           try {
-            const data = JSON.parse(chunk)
+            const data: Chat.ConversationResponse = JSON.parse(chunk)
             updateChat(
               +uuid,
               dataSources.value.length - 1,
               {
                 dateTime: new Date().toLocaleString(),
                 text: lastText + data.text ?? '',
+                source: data.source,
                 inversion: false,
                 error: false,
                 loading: false,
@@ -252,13 +253,14 @@ async function onRegenerate(index: number) {
           if (lastIndex !== -1)
             chunk = responseText.substring(lastIndex)
           try {
-            const data = JSON.parse(chunk)
+            const data: Chat.ConversationResponse = JSON.parse(chunk)
             updateChat(
               +uuid,
               index,
               {
                 dateTime: new Date().toLocaleString(),
                 text: lastText + data.text ?? '',
+                source: data.source,
                 inversion: false,
                 error: false,
                 loading: false,
@@ -495,6 +497,7 @@ onUnmounted(() => {
                 v-for="(item, index) of dataSources"
                 :key="index"
                 :date-time="item.dateTime"
+                :source="item.source"
                 :text="item.text"
                 :inversion="item.inversion"
                 :error="item.error"

@@ -45,7 +45,7 @@ func (s *chatService) ChatCompletion(ctx context.Context, in *proto.ChatCompleti
 		return nil, err
 	}
 	if !ok {
-		res := app.buildChatCompletionResponse(msg)
+		res := app.buildChatCompletionResponse(msg, answerSourceSensitiveFilter)
 		return res, nil
 	}
 
@@ -55,7 +55,7 @@ func (s *chatService) ChatCompletion(ctx context.Context, in *proto.ChatCompleti
 		if err != nil {
 			s.log.Error(err)
 		} else if found {
-			res := app.buildChatCompletionResponse(answer)
+			res := app.buildChatCompletionResponse(answer, answerSourceVectorDB)
 			return res, nil
 		}
 	}
@@ -78,6 +78,7 @@ func (s *chatService) ChatCompletion(ctx context.Context, in *proto.ChatCompleti
 		s.log.Error(err)
 		return nil, err
 	}
+	res.Source = answerSourceLLMAPI
 	go func() {
 		reqContext := &chat_context.ChatMessage{
 			ID:      in.Id,
@@ -127,14 +128,14 @@ func (s *chatService) ChatCompletionStream(in *proto.ChatCompletionRequest, stre
 	if !ok {
 		s.busMetrics.SensitiveQuestionsTotalCounter.Inc()
 		resId := uuid.New().String()
-		startRes := app.buildChatCompletionStreamResponse(resId, "", "")
-		endRes := app.buildChatCompletionStreamResponse(resId, "", "stop")
+		startRes := app.buildChatCompletionStreamResponse(resId, "", "", answerSourceSensitiveFilter)
+		endRes := app.buildChatCompletionStreamResponse(resId, "", "stop", answerSourceSensitiveFilter)
 		err = stream.Send(startRes)
 		if err != nil {
 			s.log.Error(err)
 			return err
 		}
-		resList := app.buildChatCompletionStreamResponseList(resId, msg)
+		resList := app.buildChatCompletionStreamResponseList(resId, msg, answerSourceSensitiveFilter)
 		for _, res := range resList {
 			err = stream.Send(res)
 			if err != nil {
@@ -157,14 +158,14 @@ func (s *chatService) ChatCompletionStream(in *proto.ChatCompletionRequest, stre
 			s.log.Error(err)
 		} else if found {
 			resId := uuid.New().String()
-			startRes := app.buildChatCompletionStreamResponse(resId, "", "")
-			endRes := app.buildChatCompletionStreamResponse(resId, "", "stop")
+			startRes := app.buildChatCompletionStreamResponse(resId, "", "", answerSourceVectorDB)
+			endRes := app.buildChatCompletionStreamResponse(resId, "", "stop", answerSourceVectorDB)
 			err = stream.Send(startRes)
 			if err != nil {
 				s.log.Error(err)
 				return err
 			}
-			resList := app.buildChatCompletionStreamResponseList(resId, answer)
+			resList := app.buildChatCompletionStreamResponseList(resId, answer, answerSourceVectorDB)
 			for _, res := range resList {
 				err = stream.Send(res)
 				if err != nil {
@@ -216,6 +217,7 @@ func (s *chatService) ChatCompletionStream(in *proto.ChatCompletionRequest, stre
 			s.log.Error(err)
 			return err
 		}
+		res.Source = answerSourceLLMAPI
 		err = stream.Send(res)
 		if err != nil {
 			s.log.Error(err)

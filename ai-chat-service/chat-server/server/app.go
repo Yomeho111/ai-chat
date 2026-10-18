@@ -16,7 +16,12 @@ import (
 	"time"
 )
 
-const ChatPrimedTokens = 2
+const (
+	ChatPrimedTokens            = 2
+	answerSourceVectorDB        = "vector_db"
+	answerSourceLLMAPI          = "llm_api"
+	answerSourceSensitiveFilter = "sensitive_filter"
+)
 
 type openaiConf struct {
 	ApiKey            string
@@ -174,12 +179,13 @@ func (a *app) rebuildMessages(contextList []*chat_context.ChatMessage, currMessa
 	}
 	return
 }
-func (a *app) buildChatCompletionResponse(msg string) *proto.ChatCompletionResponse {
+func (a *app) buildChatCompletionResponse(msg, source string) *proto.ChatCompletionResponse {
 	res := &proto.ChatCompletionResponse{
 		Id:      uuid.New().String(),
 		Object:  "chat.completion",
 		Created: time.Now().Unix(),
 		Model:   a.openaiConf.Model,
+		Source:  source,
 		Choices: []*proto.ChatCompletionChoice{
 			{
 				Message: &proto.ChatCompletionMessage{
@@ -198,12 +204,13 @@ func (a *app) buildChatCompletionResponse(msg string) *proto.ChatCompletionRespo
 	return res
 }
 
-func (a *app) buildChatCompletionStreamResponse(id, delta, finishReason string) *proto.ChatCompletionStreamResponse {
+func (a *app) buildChatCompletionStreamResponse(id, delta, finishReason, source string) *proto.ChatCompletionStreamResponse {
 	res := &proto.ChatCompletionStreamResponse{
 		Id:      id,
 		Object:  "chat.completion.chunk",
 		Created: time.Now().Unix(),
 		Model:   a.openaiConf.Model,
+		Source:  source,
 		Choices: []*proto.ChatCompletionStreamChoice{
 			{
 				Index: 0,
@@ -218,10 +225,10 @@ func (a *app) buildChatCompletionStreamResponse(id, delta, finishReason string) 
 	return res
 }
 
-func (a *app) buildChatCompletionStreamResponseList(id, msg string) []*proto.ChatCompletionStreamResponse {
+func (a *app) buildChatCompletionStreamResponseList(id, msg, source string) []*proto.ChatCompletionStreamResponse {
 	list := make([]*proto.ChatCompletionStreamResponse, 0)
 	for _, delta := range msg {
-		list = append(list, a.buildChatCompletionStreamResponse(id, string(delta), ""))
+		list = append(list, a.buildChatCompletionStreamResponse(id, string(delta), "", source))
 	}
 	return list
 }

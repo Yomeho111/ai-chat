@@ -31,6 +31,8 @@ message ChatCompletionResponse {
   string model = 4 [json_name = "model"];
   repeated  ChatCompletionChoice choices = 5 [json_name = "choices"];
   Usage usage = 6[json_name = "usage"];
+  // vector_db, llm_api, or sensitive_filter; empty for legacy responses.
+  string source = 7 [json_name = "source"];
 }
 message ChatCompletionChoice {
   int32 index = 1[json_name = "index"];
@@ -55,6 +57,8 @@ message  ChatCompletionStreamResponse {
   int64 created = 3 [json_name = "created"];
   string model = 4 [json_name = "model"];
   repeated  ChatCompletionStreamChoice choices = 5 [json_name = "choices"];
+  // vector_db, llm_api, or sensitive_filter; empty for legacy responses.
+  string source = 6 [json_name = "source"];
 }
 message ChatCompletionStreamChoice {
   int32 index = 1[json_name = "index"];

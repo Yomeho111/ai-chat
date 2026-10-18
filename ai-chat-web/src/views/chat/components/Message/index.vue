@@ -11,6 +11,7 @@ import { useBasicLayout } from '@/hooks/useBasicLayout'
 
 interface Props {
   dateTime?: string
+  source?: Chat.AnswerSource
   text?: string
   inversion?: boolean
   error?: boolean
@@ -35,6 +36,35 @@ const textRef = ref<HTMLElement>()
 const asRawText = ref(props.inversion)
 
 const messageRef = ref<HTMLElement>()
+
+const sourceBadge = computed(() => {
+  switch (props.source) {
+    case 'vector_db':
+      return {
+        label: t('chat.sourceVectorDB'),
+        icon: 'ri:database-2-fill',
+        classes: 'border-emerald-500 bg-emerald-100 text-emerald-800 dark:border-emerald-400 dark:bg-emerald-900 dark:text-emerald-100',
+      }
+    case 'llm_api':
+      return {
+        label: t('chat.sourceLLMAPI'),
+        icon: 'ri:robot-fill',
+        classes: 'border-blue-500 bg-blue-100 text-blue-800 dark:border-blue-400 dark:bg-blue-900 dark:text-blue-100',
+      }
+    case 'sensitive_filter':
+      return {
+        label: t('chat.sourceSensitiveFilter'),
+        icon: 'ri:shield-check-fill',
+        classes: 'border-amber-500 bg-amber-100 text-amber-800 dark:border-amber-400 dark:bg-amber-900 dark:text-amber-100',
+      }
+    default:
+      return {
+        label: t(props.loading ? 'chat.sourcePending' : 'chat.sourceUnknown'),
+        icon: 'ri:question-fill',
+        classes: 'border-neutral-400 bg-neutral-100 text-neutral-700 dark:border-neutral-500 dark:bg-neutral-800 dark:text-neutral-200',
+      }
+  }
+})
 
 const options = computed(() => {
   const common = [
@@ -93,8 +123,16 @@ function handleRegenerate() {
       <AvatarComponent :image="inversion" />
     </div>
     <div class="overflow-hidden text-sm " :class="[inversion ? 'items-end' : 'items-start']">
-      <p class="text-xs text-[#b4bbc4]" :class="[inversion ? 'text-right' : 'text-left']">
-        {{ dateTime }}
+      <p class="flex flex-wrap items-center gap-2 text-xs text-[#b4bbc4]" :class="[inversion ? 'justify-end' : 'justify-start']">
+        <span>{{ dateTime }}</span>
+        <span
+          v-if="!inversion"
+          class="inline-flex items-center gap-1 px-2 py-0.5 font-semibold border rounded-full"
+          :class="sourceBadge.classes"
+        >
+          <SvgIcon :icon="sourceBadge.icon" aria-hidden="true" />
+          {{ sourceBadge.label }}
+        </span>
       </p>
       <div
         class="flex items-end gap-1 mt-2"
