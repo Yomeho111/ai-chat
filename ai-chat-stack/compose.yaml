@@ -204,6 +204,7 @@ services:
     platform: linux/amd64
     restart: unless-stopped
     environment:
+      # 官方模式同时加载 compose.openai.yaml，以移除 mock 服务及其依赖。
       AI_PROVIDER: "${AI_PROVIDER:-mock}"
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
     depends_on:

@@ -9,6 +9,12 @@ docker compose -f ai-chat-stack/compose.yaml up -d \
   --wait \
   --wait-timeout 1800
 
+docker compose -f ai-chat-stack/compose.yaml up -f ai-chat-stack/compose.openai.yaml -d \
+  --build \
+  --remove-orphans \
+  --wait \
+  --wait-timeout 1800
+
 docker compose -f ai-chat-stack/compose.yaml ps
 ```
 
@@ -22,17 +28,26 @@ Compose 的后端镜像使用 [Dockerfile.backend](./Dockerfile.backend)，在�
 
 ### 切换 OpenAI 官方接口
 
-在 `compose.yaml` 的 `ai-chat-service.environment` 中设置：
+保留 `compose.yaml` 中的默认配置。官方模式先通过环境变量提供 `OPENAI_API_KEY`，然后同时加载 [compose.openai.yaml](./compose.openai.yaml)：
 
-```yaml
-AI_PROVIDER: "openai" # 改为 mock 即恢复模拟接口
-OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+```bash
+docker compose -f ai-chat-stack/compose.yaml \
+  -f ai-chat-stack/compose.openai.yaml up -d \
+  --build --remove-orphans --wait --wait-timeout 1800
 ```
 
-通过环境变量提供密钥，不要提交真实密钥。也可以不修改 Compose 文件，直接设置 `AI_PROVIDER=openai` 和 `OPENAI_API_KEY`。
-重新执行上面的 `up --build` 命令即可。服务通过 HTTPS 请求 `https://api.openai.com/v1/chat/completions`，固定使用 `gpt-6-luna`，支持普通和 SSE 流式回答；不安装或运行本地模型，也不新增依赖。官方模式未提供密钥或 provider 非法时启动报错，不回退到 mock。
+覆盖文件会设置 `AI_PROVIDER=openai`，并从 Compose 中移除 `mock-openai-api` 及其健康检查依赖：不构建、不启动 mock；`--remove-orphans` 也会删除之前运行的 mock 容器，不删除数据卷。Compose 不能仅根据容器环境变量条件启停另一个服务，因此不要只修改 `AI_PROVIDER`。未提供密钥时 Compose 直接报错，不回退到 mock；不要提交真实密钥。
 
-官方请求使用 `max_completion_tokens`、`reasoning_effort: none`，不发送旧模型的采样和惩罚参数，也不接受后端覆盖官方模型。mock 容器保留，但官方模式不会向其发送聊天请求。两种模式不复用彼此的语义缓存回答和聊天上下文，无需删除数据卷。切换后建议新建会话，以免浏览器继续显示旧回答。
+恢复 mock 模式时只加载默认文件：
+
+```bash
+AI_PROVIDER=mock docker compose -f ai-chat-stack/compose.yaml up -d \
+  --remove-orphans --wait --wait-timeout 1800
+```
+
+服务通过 HTTPS 请求 `https://api.openai.com/v1/chat/completions`，固定使用 `gpt-6-luna`，支持普通和 SSE 流式回答；不安装或运行本地模型，也不新增依赖。
+
+官方请求使用 `max_completion_tokens`、`reasoning_effort: none`，不发送旧模型的采样和惩罚参数，也不接受后端覆盖官方模型。两种模式不复用彼此的语义缓存回答和聊天上下文，无需删除数据卷。切换后建议新建会话，以免浏览器继续显示旧回答。
 
 GPT-6 Luna 的 Token 统计沿用现有 tokenizer，以 `cl100k_base` 近似估算，仅用于页面统计和本地长度预算；不是官方精确用量或账单，请以 OpenAI 平台为准。
 
