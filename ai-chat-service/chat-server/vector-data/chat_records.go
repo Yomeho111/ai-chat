@@ -14,6 +14,7 @@ const chatRecordPrefix = "ai-chat-cache:v1\n"
 
 type ChatRecord struct {
 	UUID           string `json:"-"`
+	CacheScope     string `json:"cache_scope,omitempty"`
 	Answer         string `json:"answer"`
 	ConsumedTokens int32  `json:"consumed_tokens"`
 }

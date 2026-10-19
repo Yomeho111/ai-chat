@@ -5,7 +5,8 @@ import tiktoken
 
 encoding_cache = {}
 
-support_models = set(["gpt-3.5-turbo",
+support_models = set(["gpt-6-luna",
+                      "gpt-3.5-turbo",
                       "gpt-3.5-turbo-16k",
                       "gpt-4",
                       "gpt-4-32k"])
@@ -36,6 +37,9 @@ def num_tokens_from_messages(messages, model="gpt-3.5-turbo"):
     encoding = None
     if model in encoding_cache:
         encoding = encoding_cache.get(model)
+    elif model == "gpt-6-luna":
+        encoding = tiktoken.get_encoding("cl100k_base")
+        encoding_cache[model] = encoding
     else:
         try:
             encoding = tiktoken.encoding_for_model(model)
