@@ -1,0 +1,8 @@
+services:
+  mock-openai-api: !reset null
+  ai-chat-service:
+    environment:
+      AI_PROVIDER: "openai"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:?Set OPENAI_API_KEY to use OpenAI}"
+    depends_on:
+      mock-openai-api: !reset null
