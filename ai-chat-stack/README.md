@@ -20,6 +20,22 @@ Compose 的后端镜像使用 [Dockerfile.backend](./Dockerfile.backend)，在�
 
 默认栈连接的是 `mock-openai-api`，不是收费模型接口。页面的「大模型 API 返回」表示本次请求走了模型接口分支；Token 消耗是 tokenizer 的模拟估算，不表示实际付费账单。
 
+### 切换 OpenAI 官方接口
+
+在 `compose.yaml` 的 `ai-chat-service.environment` 中设置：
+
+```yaml
+AI_PROVIDER: "openai" # 改为 mock 即恢复模拟接口
+OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+```
+
+通过环境变量提供密钥，不要提交真实密钥。也可以不修改 Compose 文件，直接设置 `AI_PROVIDER=openai` 和 `OPENAI_API_KEY`。
+重新执行上面的 `up --build` 命令即可。服务通过 HTTPS 请求 `https://api.openai.com/v1/chat/completions`，固定使用 `gpt-6-luna`，支持普通和 SSE 流式回答；不安装或运行本地模型，也不新增依赖。官方模式未提供密钥或 provider 非法时启动报错，不回退到 mock。
+
+官方请求使用 `max_completion_tokens`、`reasoning_effort: none`，不发送旧模型的采样和惩罚参数，也不接受后端覆盖官方模型。mock 容器保留，但官方模式不会向其发送聊天请求。两种模式不复用彼此的语义缓存回答和聊天上下文，无需删除数据卷。切换后建议新建会话，以免浏览器继续显示旧回答。
+
+GPT-6 Luna 的 Token 统计沿用现有 tokenizer，以 `cl100k_base` 近似估算，仅用于页面统计和本地长度预算；不是官方精确用量或账单，请以 OpenAI 平台为准。
+
 模型接口返回时，消耗量按「完整请求 Token + 回答 Token」估算，节省量为 0。完整请求包含系统提示词、当前问题、按上下文开关及长度预算实际选入的历史消息，以及消息开销。答案与这次生成的总消耗量一起写入带版本的语义缓存；后续命中该答案时，消耗量为 0，节省量直接使用缓存记录的原始生成消耗量，不再按第二次请求新增的历史重新估算。因此第一次生成消耗 89 Token 时，再次命中同一条缓存就节省 89 Token。缓存命中仍校验当前请求长度，超限或请求 tokenizer 失败时明确返回错误。
 
 旧版语义缓存仅保存答案，没有原始消耗量；遇到这类记录时服务会记录原因并重新调用模型生成一次，写入新格式，不猜测旧值，也不需要清空数据卷。浏览器中已有聊天记录保留原统计，不会自动重新计算；请用新请求验证新口径。

@@ -203,6 +203,9 @@ services:
       context: ../ai-chat-service
     platform: linux/amd64
     restart: unless-stopped
+    environment:
+      AI_PROVIDER: "${AI_PROVIDER:-mock}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
     depends_on:
       context-kvstore:
         condition: service_healthy

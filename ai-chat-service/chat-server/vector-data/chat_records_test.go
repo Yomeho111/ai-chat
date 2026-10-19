@@ -105,7 +105,7 @@ func TestFindDoesNotReadKVStoreOnMiss(t *testing.T) {
 }
 
 func TestGenerationTokenUsageSurvivesCacheRoundTrip(t *testing.T) {
-	want := ChatRecord{Answer: "answer with\nnewlines, \"quotes\", and \u4e2d\u6587", ConsumedTokens: 89}
+	want := ChatRecord{Answer: "answer with\nnewlines, \"quotes\", and \u4e2d\u6587", ConsumedTokens: 89, CacheScope: "openai/gpt-6-luna"}
 	var stored string
 	client := &ragClientStub{
 		vset: func(context.Context, *proto.VsetRequest) (*proto.VsetResponse, error) {

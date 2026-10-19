@@ -1,8 +1,11 @@
 package config
 
 import (
+	"fmt"
 	"github.com/spf13/viper"
 	"log"
+	"os"
+	"strings"
 )
 
 type Config struct {
@@ -16,6 +19,7 @@ type Config struct {
 		LogPath string `mapstructure:"logPath"`
 	} `mapstructure:"log"`
 	Chat struct {
+		Provider          string  `mapstructure:"provider"`
 		ApiKey            string  `mapstructure:"api_key"`
 		BaseUrl           string  `mapstructure:"base_url"`
 		Model             string  `mapstructure:"model"`
@@ -72,7 +76,31 @@ func InitConfig(filePath string, typ ...string) {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if err := conf.configureProvider(); err != nil {
+		log.Fatal(err)
+	}
+}
 
+func (c *Config) configureProvider() error {
+	if provider, ok := os.LookupEnv("AI_PROVIDER"); ok {
+		c.Chat.Provider = provider
+	}
+	c.Chat.Provider = strings.ToLower(strings.TrimSpace(c.Chat.Provider))
+	switch c.Chat.Provider {
+	case "", "mock":
+		c.Chat.Provider = "mock"
+	case "openai":
+		key := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+		if key == "" {
+			return fmt.Errorf("OPENAI_API_KEY is required when AI_PROVIDER=openai")
+		}
+		c.Chat.ApiKey = key
+		c.Chat.BaseUrl = "https://api.openai.com/v1"
+		c.Chat.Model = "gpt-6-luna"
+	default:
+		return fmt.Errorf("invalid AI_PROVIDER %q: expected mock or openai", c.Chat.Provider)
+	}
+	return nil
 }
 
 func GetConfig() *Config {

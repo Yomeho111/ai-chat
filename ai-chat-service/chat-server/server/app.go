@@ -25,6 +25,7 @@ const (
 )
 
 type openaiConf struct {
+	Provider          string
 	ApiKey            string
 	BaseUrl           string
 	Model             string
@@ -47,6 +48,7 @@ type app struct {
 
 func (s *chatService) newApp(in *proto.ChatCompletionRequest, contextCache chat_context.ContextCache) *app {
 	conf := &openaiConf{
+		Provider:          s.config.Chat.Provider,
 		ApiKey:            s.config.Chat.ApiKey,
 		BaseUrl:           s.config.Chat.BaseUrl,
 		Model:             s.config.Chat.Model,
@@ -61,7 +63,7 @@ func (s *chatService) newApp(in *proto.ChatCompletionRequest, contextCache chat_
 		MinResponseTokens: s.config.Chat.MinResponseTokens,
 	}
 	if in.ChatParam != nil {
-		if in.ChatParam.Model != "" {
+		if in.ChatParam.Model != "" && conf.Provider != "openai" {
 			conf.Model = in.ChatParam.Model
 		}
 		if in.ChatParam.TopP != 0 {
@@ -98,12 +100,26 @@ func (s *chatService) newApp(in *proto.ChatCompletionRequest, contextCache chat_
 		contextCache: contextCache,
 	}
 }
-func (a *app) getOpenaiClient() *openai.Client {
-	accessToken := a.openaiConf.ApiKey
-	config := openai.DefaultConfig(accessToken)
-	config.BaseURL = a.openaiConf.BaseUrl
-	client := openai.NewClientWithConfig(config)
-	return client
+func (a *app) getOpenaiClient() *completionClient {
+	return &completionClient{
+		baseURL:  a.openaiConf.BaseUrl,
+		apiKey:   a.openaiConf.ApiKey,
+		official: a.openaiConf.Provider == "openai",
+	}
+}
+
+func (a *app) cacheScope() string {
+	if a.openaiConf.Provider == "openai" {
+		return "openai/" + a.openaiConf.Model
+	}
+	return ""
+}
+
+func (a *app) contextKey(key string) string {
+	if scope := a.cacheScope(); scope != "" {
+		return scope + ":" + key
+	}
+	return key
 }
 func (a *app) buildChatCompletionRequest(in *proto.ChatCompletionRequest, stream bool) (req openai.ChatCompletionRequest, tokens, currTokens int, currMessage openai.ChatCompletionMessage, err error) {
 	//当前消息
@@ -249,7 +265,7 @@ func (a *app) getContext(id string) []*chat_context.ChatMessage {
 	list := make([]*chat_context.ChatMessage, 0, maxLen)
 	key := id
 	for i := 0; i < maxLen; i++ {
-		value, err := a.contextCache.Get(key)
+		value, err := a.contextCache.Get(a.contextKey(key))
 		if err != nil {
 			a.log.Error(err)
 			return nil
@@ -263,7 +279,7 @@ func (a *app) getContext(id string) []*chat_context.ChatMessage {
 	return list
 }
 func (a *app) saveContext(value *chat_context.ChatMessage) error {
-	err := a.contextCache.Set(value.ID, value, a.openaiConf.ContextTTL)
+	err := a.contextCache.Set(a.contextKey(value.ID), value, a.openaiConf.ContextTTL)
 	if err != nil {
 		a.log.Error(err)
 		return err

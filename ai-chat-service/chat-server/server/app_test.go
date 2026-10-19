@@ -30,6 +30,35 @@ func (c tokenUsageContextCache) Set(key string, value *chat_context.ChatMessage,
 
 func (c tokenUsageContextCache) Close() {}
 
+func TestOfficialModelAndContextIsolation(t *testing.T) {
+	conf := &config.Config{}
+	conf.Chat.Provider = "openai"
+	conf.Chat.Model = "gpt-6-luna"
+	conf.Chat.ContextLen = 4
+	input := &proto.ChatCompletionRequest{ChatParam: &proto.ChatParam{Model: "gpt-3.5-turbo"}}
+	cache := tokenUsageContextCache{
+		"mock-answer": {Message: openai.ChatCompletionMessage{Role: "assistant", Content: "mock"}},
+	}
+	app := (&chatService{config: conf}).newApp(input, cache)
+	if app.openaiConf.Model != "gpt-6-luna" || app.cacheScope() != "openai/gpt-6-luna" {
+		t.Fatal("backend overrode official model or cache scope")
+	}
+	if len(app.getContext("mock-answer")) != 0 {
+		t.Fatal("official mode reused mock history")
+	}
+	if err := app.saveContext(&chat_context.ChatMessage{ID: "official-answer"}); err != nil {
+		t.Fatal(err)
+	}
+	if cache["official-answer"] != nil || cache["openai/gpt-6-luna:official-answer"] == nil {
+		t.Fatal("official history was not isolated")
+	}
+	conf.Chat.Provider = "mock"
+	app = (&chatService{config: conf}).newApp(input, cache)
+	if app.openaiConf.Model != "gpt-3.5-turbo" || app.cacheScope() != "" || len(app.getContext("mock-answer")) != 1 {
+		t.Fatal("mock model override or history behavior changed")
+	}
+}
+
 func TestSavedTokenUsage(t *testing.T) {
 	tests := []struct {
 		name            string

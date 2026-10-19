@@ -58,7 +58,7 @@ func (s *chatService) ChatCompletion(ctx context.Context, in *proto.ChatCompleti
 		cachedRecord = record
 		if err != nil {
 			s.log.Error(err)
-		} else if found {
+		} else if found && record.CacheScope == app.cacheScope() {
 			usage, err := app.savedTokenUsage(in, record.ConsumedTokens)
 			if err != nil {
 				s.log.Error(err)
@@ -132,6 +132,7 @@ func (s *chatService) ChatCompletion(ctx context.Context, in *proto.ChatCompleti
 		if question != "" && s.semanticCache != nil {
 			err := s.semanticCache.Save(context.Background(), question, vector_data.ChatRecord{
 				UUID:           cachedRecord.UUID,
+				CacheScope:     app.cacheScope(),
 				Answer:         resp.Choices[0].Message.Content,
 				ConsumedTokens: res.TokenUsage.ConsumedTokens,
 			})
@@ -188,7 +189,7 @@ func (s *chatService) ChatCompletionStream(in *proto.ChatCompletionRequest, stre
 		cachedRecord = record
 		if err != nil {
 			s.log.Error(err)
-		} else if found {
+		} else if found && record.CacheScope == app.cacheScope() {
 			usage, err := app.savedTokenUsage(in, record.ConsumedTokens)
 			if err != nil {
 				s.busMetrics.ErrQuestionsTotalCounter.Inc()
@@ -287,11 +288,7 @@ func (s *chatService) ChatCompletionStream(in *proto.ChatCompletionRequest, stre
 		Role:    openai.ChatMessageRoleAssistant,
 		Content: completionContent,
 	}
-	model := s.config.Chat.Model
-	if in.ChatParam != nil && in.ChatParam.Model != "" {
-		model = in.ChatParam.Model
-	}
-	resultTokens, err := tokenizer.GetTokens(&resultMessage, model)
+	resultTokens, err := tokenizer.GetTokens(&resultMessage, req.Model)
 	if err != nil {
 		s.busMetrics.ErrQuestionsTotalCounter.Inc()
 		s.log.Error(err)
@@ -333,6 +330,7 @@ func (s *chatService) ChatCompletionStream(in *proto.ChatCompletionRequest, stre
 		if question != "" && s.semanticCache != nil {
 			err := s.semanticCache.Save(context.Background(), question, vector_data.ChatRecord{
 				UUID:           cachedRecord.UUID,
+				CacheScope:     app.cacheScope(),
 				Answer:         completionContent,
 				ConsumedTokens: endRes.TokenUsage.ConsumedTokens,
 			})
